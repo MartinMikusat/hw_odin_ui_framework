@@ -2,6 +2,7 @@ package metal
 
 import "core:mem"
 import "core:os"
+import "core:strings"
 import coretext "ui_framework:coretext"
 import draw "ui_framework:draw"
 
@@ -17,8 +18,6 @@ foreign objc {
 foreign import core_foundation "system:CoreFoundation.framework"
 foreign core_foundation {
 	CFStringCreateWithCString :: proc "c" (allocator: rawptr, text: cstring, encoding: u32) -> rawptr ---
-	@(link_name="CFStringCreateWithBytes")
-	ui_CFStringCreateWithBytes :: proc "c" (allocator: rawptr, bytes: [^]u8, count: int, encoding: u32, external: bool) -> rawptr ---
 	CFRelease                 :: proc "c" (value: rawptr) ---
 }
 
@@ -178,7 +177,10 @@ msg_void_draw_instanced :: proc(receiver: Object, selector: Selector, primitive,
 
 nsstring :: proc(value: string) -> Object {
 	if len(value) == 0 {return CFStringCreateWithCString(nil, "", UTF8_ENCODING)}
-	return ui_CFStringCreateWithBytes(nil, raw_data(transmute([]u8)value), len(value), UTF8_ENCODING, false)
+	text, err := strings.clone_to_cstring(value, context.temp_allocator)
+	if err != nil {return nil}
+	defer delete(text, context.temp_allocator)
+	return CFStringCreateWithCString(nil, text, UTF8_ENCODING)
 }
 
 release :: proc(value: Object) {
