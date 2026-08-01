@@ -325,7 +325,21 @@ registry_publish :: proc(ui: ^Context, registry: ^Registry_Builder) {
 
 control_by_name :: proc(ui: ^Context, functional_name: string) -> ^Control_Record {
 	if ui == nil {return nil}
-	for &control in ui.published.controls {
+	return control_by_name_in_view(
+		registry_view_from_records(
+			ui.published.actions[:],
+			ui.published.controls[:],
+			ui.published.frame,
+		),
+		functional_name,
+	)
+}
+
+control_by_name_in_view :: proc(
+	registry: Registry_View,
+	functional_name: string,
+) -> ^Control_Record {
+	for &control in registry.controls {
 		if control.functional_name == functional_name {return &control}
 	}
 	return nil

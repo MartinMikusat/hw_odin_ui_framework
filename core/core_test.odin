@@ -224,6 +224,21 @@ published_controls_route_all_enabled_sources_through_one_action_test :: proc(t: 
 }
 
 @(test)
+borrowed_registry_view_resolves_functional_control_name_test :: proc(t: ^testing.T) {
+	controls := []Control_Record{{
+		id = Key(2),
+		functional_name = "settings",
+		capabilities = {.CLI},
+		enabled = true,
+	}}
+	view := registry_view_from_records(nil, controls, 7)
+	control := control_by_name_in_view(view, "settings")
+	testing.expect(t, control != nil)
+	if control != nil {testing.expect_value(t, control.id, Key(2))}
+	testing.expect(t, control_by_name_in_view(view, "missing") == nil)
+}
+
+@(test)
 registry_validation_reports_cross_surface_contract_violations_test :: proc(
 	t: ^testing.T,
 ) {
