@@ -5,6 +5,11 @@ import ui "ui_framework:core"
 import coretext "ui_framework:coretext"
 import draw "ui_framework:draw"
 
+@(test)
+batch_uniforms_match_metal_constant_layout_test :: proc(t: ^testing.T) {
+	testing.expect_value(t, size_of(Batch_Uniforms), 48)
+}
+
 foreign import metal_framework "system:Metal.framework"
 foreign metal_framework {
 	MTLCreateSystemDefaultDevice :: proc "c" () -> Object ---

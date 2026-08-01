@@ -58,6 +58,7 @@ Batch_Uniforms :: struct {
 	padding:     f32,
 	transform:   [4]f32,
 	translation: [2]f32,
+	_tail:       [2]f32,
 }
 
 Batch_Range :: struct {
