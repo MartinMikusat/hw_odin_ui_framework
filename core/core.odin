@@ -8,6 +8,7 @@ import draw "ui_framework:draw"
 Key :: distinct u64
 Action_ID :: distinct u64
 Font_Handle :: distinct u64
+Text_Run_ID :: distinct u64
 
 Vec2 :: struct {
 	x, y: f32,
@@ -119,6 +120,8 @@ Box_Flag :: enum {
 	Draw_Image,
 	Interactive,
 	Modal_Root,
+	Input_Root,
+	Input_Passthrough,
 	Scroll,
 	Clip,
 	Allow_Overflow_X,
@@ -328,19 +331,24 @@ Text_Metrics :: struct {
 	width, ascent, descent, leading: f32,
 }
 
-Measure_Text_Proc :: proc(
+Prepared_Text :: struct {
+	run:     Text_Run_ID,
+	metrics: Text_Metrics,
+}
+
+Prepare_Text_Proc :: proc(
 	user_data: rawptr,
 	font: Font_Handle,
 	text: string,
 	size, tracking, maximum_width: f32,
 	truncate: bool,
-) -> Text_Metrics
+) -> Prepared_Text
 
 Emit_Text_Proc :: proc(
 	user_data: rawptr,
 	list: ^draw.List,
-	font: Font_Handle,
-	text: string,
+	run: Text_Run_ID,
+	label: string,
 	rect: draw.Rect,
 	style: Text_Style,
 	color: draw.Color,
@@ -348,7 +356,7 @@ Emit_Text_Proc :: proc(
 
 Text_Backend :: struct {
 	user_data: rawptr,
-	measure:   Measure_Text_Proc,
+	prepare:   Prepare_Text_Proc,
 	emit:      Emit_Text_Proc,
 }
 
@@ -385,6 +393,7 @@ Box :: struct {
 	control:      Control_Descriptor,
 	custom_draw:  Custom_Draw_Proc,
 	custom_data:  rawptr,
+	text_run:     Text_Run_ID,
 	text_metrics: Text_Metrics,
 	desired:      Vec2,
 	rect:         draw.Rect,
@@ -449,7 +458,7 @@ Frame :: struct {
 	draw_list:     draw.List,
 	seen_keys:     map[Key]bool,
 	seen_actions:  map[Action_ID]bool,
-	modal_root:    int,
+	input_root:    int,
 }
 
 key_from_string :: proc(value: string) -> Key {
@@ -546,7 +555,7 @@ begin_frame :: proc(
 		allocator = allocator,
 		input = input,
 		text_backend = text_backend,
-		modal_root = -1,
+		input_root = -1,
 	}
 	frame.boxes = make([dynamic]Box, 0, 256, allocator)
 	frame.parent_stack = make([dynamic]int, 0, 32, allocator)
@@ -663,7 +672,12 @@ append_box :: proc(frame: ^Frame, box: Box) -> int {
 	}
 	frame.boxes[parent].last_child = index
 	touch_state(frame, next.key)
-	if .Modal_Root in next.flags {frame.modal_root = index}
+	if .Modal_Root in next.flags || .Input_Root in next.flags {
+		if frame.input_root < 0 ||
+		   next.layer >= frame.boxes[frame.input_root].layer {
+			frame.input_root = index
+		}
+	}
 	return index
 }
 
@@ -698,8 +712,8 @@ clamp_size :: proc(value: f32, spec: Size) -> f32 {
 }
 
 measure_text :: proc(frame: ^Frame, box: ^Box) -> Text_Metrics {
-	if len(box.text) == 0 || frame.text_backend.measure == nil {return {}}
-	return frame.text_backend.measure(
+	if len(box.text) == 0 || frame.text_backend.prepare == nil {return {}}
+	prepared := frame.text_backend.prepare(
 		frame.text_backend.user_data,
 		box.style.text_style.font,
 		box.text,
@@ -708,6 +722,34 @@ measure_text :: proc(frame: ^Frame, box: ^Box) -> Text_Metrics {
 		0,
 		false,
 	)
+	box.text_run = prepared.run
+	return prepared.metrics
+}
+
+prepare_final_text_runs :: proc(frame: ^Frame) {
+	if frame.text_backend.prepare == nil {return}
+	for &box in frame.boxes {
+		if .Draw_Text not_in box.flags || len(box.text) == 0 {continue}
+		if !box.style.text_style.truncate && box.text_run != Text_Run_ID(0) {continue}
+		maximum_width := f32(0)
+		if box.style.text_style.truncate {
+			maximum_width = max(
+				f32(0),
+				box.rect.w-box.style.text_style.inset*2,
+			)
+		}
+		prepared := frame.text_backend.prepare(
+			frame.text_backend.user_data,
+			box.style.text_style.font,
+			box.text,
+			box.style.text_style.size,
+			box.style.text_style.tracking,
+			maximum_width,
+			box.style.text_style.truncate,
+		)
+		box.text_run = prepared.run
+		box.text_metrics = prepared.metrics
+	}
 }
 
 axis_spec :: proc(box: ^Box, axis: Axis) -> Size {
@@ -986,12 +1028,8 @@ is_descendant_of :: proc(frame: ^Frame, index, ancestor: int) -> bool {
 	return false
 }
 
-emit_box :: proc(frame: ^Frame, index: int) {
+emit_box_layer :: proc(frame: ^Frame, index: int, layer: Layer) {
 	box := &frame.boxes[index]
-	state := frame.ui.states[box.key]
-	state.last_rect = box.rect
-	state.last_seen_frame = frame.ui.frame
-	frame.ui.states[box.key] = state
 	box.clipped_rect = box.rect
 	for parent := box.parent; parent >= 0; parent = frame.boxes[parent].parent {
 		ancestor := &frame.boxes[parent]
@@ -1002,7 +1040,7 @@ emit_box :: proc(frame: ^Frame, index: int) {
 	trace_label := box.debug_label
 	if len(trace_label) == 0 {trace_label = box.text}
 	if box.style.opacity < 1 {draw.push_opacity(&frame.draw_list, box.style.opacity)}
-	if .Draw_Background in box.flags {
+	if box.layer == layer && .Draw_Background in box.flags {
 		draw.solid(
 			&frame.draw_list,
 			box.rect,
@@ -1013,7 +1051,7 @@ emit_box :: proc(frame: ^Frame, index: int) {
 			trace_label,
 		)
 	}
-	if .Draw_Border in box.flags && box.style.border_thickness > 0 {
+	if box.layer == layer && .Draw_Border in box.flags && box.style.border_thickness > 0 {
 		draw.solid(
 			&frame.draw_list,
 			box.rect,
@@ -1025,22 +1063,28 @@ emit_box :: proc(frame: ^Frame, index: int) {
 		)
 	}
 	if box.style.clip {draw.push_clip(&frame.draw_list, box.rect)}
-	if .Draw_Image in box.flags {
+	if box.layer == layer && .Draw_Image in box.flags {
 		draw.image(&frame.draw_list, box.texture, box.rect, box.texture_src, label = trace_label)
 	}
-	if .Draw_Text in box.flags && frame.text_backend.emit != nil && len(box.text) > 0 {
+	if box.layer == layer && .Draw_Text in box.flags && frame.text_backend.emit != nil &&
+	   box.text_run != Text_Run_ID(0) {
 		frame.text_backend.emit(
 			frame.text_backend.user_data,
 			&frame.draw_list,
-			box.style.text_style.font,
+			box.text_run,
 			box.text,
 			box.rect,
 			box.style.text_style,
 			box.style.text,
 		)
 	}
-	if box.custom_draw != nil {box.custom_draw(box.custom_data, &frame.draw_list, box.rect)}
-	if .Interactive in box.flags && (frame.modal_root < 0 || is_descendant_of(frame, index, frame.modal_root)) {
+	if box.layer == layer && box.custom_draw != nil {
+		box.custom_draw(box.custom_data, &frame.draw_list, box.rect)
+	}
+	if box.layer == layer && .Interactive in box.flags &&
+	   (frame.input_root < 0 ||
+	    is_descendant_of(frame, index, frame.input_root) ||
+	    .Input_Passthrough in box.flags) {
 		action := find_action(frame.actions[:], box.control.action)
 		enabled := box.control.action == Action_ID(0) || (action != nil && action.enabled)
 		if .Disabled in box.flags {enabled = false}
@@ -1063,10 +1107,35 @@ emit_box :: proc(frame: ^Frame, index: int) {
 		})
 	}
 	for child := box.first_child; child >= 0; child = frame.boxes[child].next_sibling {
-		emit_box(frame, child)
+		emit_box_layer(frame, child, layer)
 	}
 	if box.style.clip {draw.pop_clip(&frame.draw_list)}
 	if box.style.opacity < 1 {draw.pop_opacity(&frame.draw_list)}
+}
+
+layer_label :: proc(layer: Layer) -> string {
+	switch layer {
+	case .Base: return "layer base"
+	case .Popup: return "layer popup"
+	case .Tooltip: return "layer tooltip"
+	case .Modal: return "layer modal"
+	case .Debug: return "layer debug"
+	}
+	return "layer"
+}
+
+emit_layers :: proc(frame: ^Frame) {
+	for layer in Layer {
+		draw.begin_group(&frame.draw_list, layer_label(layer))
+		emit_box_layer(frame, 0, layer)
+		draw.end_group(&frame.draw_list, layer_label(layer))
+	}
+	for &box in frame.boxes {
+		state := frame.ui.states[box.key]
+		state.last_rect = box.rect
+		state.last_seen_frame = frame.ui.frame
+		frame.ui.states[box.key] = state
+	}
 }
 
 purge_old_state :: proc(ui: ^Context) {
@@ -1087,7 +1156,8 @@ end_frame :: proc(frame: ^Frame) -> Frame_Output {
 	_ = layout_measure_upward(frame, 0, .Vertical)
 	frame.boxes[0].rect = frame.input.viewport
 	arrange_children(frame, 0)
-	emit_box(frame, 0)
+	prepare_final_text_runs(frame)
+	emit_layers(frame)
 	process_events(frame)
 	update_builtin_animations(frame.ui, frame.input.delta_seconds)
 	purge_old_state(frame.ui)
@@ -1131,16 +1201,16 @@ activate_control :: proc(
 	source: Activation_Source,
 	point: Vec2 = {},
 ) -> (Activation, bool) {
-	capability := capability_for_source(source)
-	for index := len(ui.published.controls)-1; index >= 0; index -= 1 {
-		control := &ui.published.controls[index]
-		if control.id != control_id || !control.enabled || capability not_in control.capabilities {continue}
-		normalized := Vec2{}
-		if control.rect.w > 0 {normalized.x = (point.x-control.rect.x)/control.rect.w}
-		if control.rect.h > 0 {normalized.y = (point.y-control.rect.y)/control.rect.h}
-		return {control.action, control.id, source, point, normalized}, true
-	}
-	return {}, false
+	return activate_control_in_view(
+		registry_view_from_records(
+			ui.published.actions[:],
+			ui.published.controls[:],
+			ui.published.frame,
+		),
+		control_id,
+		source,
+		point,
+	)
 }
 
 hit_test :: proc(
@@ -1158,7 +1228,13 @@ activate_at_point :: proc(ui: ^Context, point: Vec2) -> (Activation, bool) {
 }
 
 activate_action :: proc(ui: ^Context, action_id: Action_ID, source: Activation_Source) -> (Activation, bool) {
-	action := find_action(ui.published.actions[:], action_id)
-	if action == nil || !action.enabled {return {}, false}
-	return {action = action_id, source = source}, true
+	return activate_action_in_view(
+		registry_view_from_records(
+			ui.published.actions[:],
+			ui.published.controls[:],
+			ui.published.frame,
+		),
+		action_id,
+		source,
+	)
 }

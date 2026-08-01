@@ -58,17 +58,37 @@ consume_numbered_digit :: proc(
 	now_ms: i64,
 	timeout_ms: i64 = 1_000,
 ) -> (ui.Activation, bool, bool) {
+	return consume_numbered_digit_view(
+		state,
+		ui.registry_view_from_records(
+			ctx.published.actions[:],
+			ctx.published.controls[:],
+			ctx.published.frame,
+		),
+		digit,
+		now_ms,
+		timeout_ms,
+	)
+}
+
+consume_numbered_digit_view :: proc(
+	state: ^Numbered_State,
+	registry: ui.Registry_View,
+	digit: i8,
+	now_ms: i64,
+	timeout_ms: i64 = 1_000,
+) -> (ui.Activation, bool, bool) {
 	assert(state != nil)
 	if state.first != 0 && now_ms > state.deadline_ms {state^ = {}}
 	if state.first == 0 {
-		for &action in ctx.published.actions {
+		for &action in registry.actions {
 			if action.enabled && action.number_code.digits == 2 && action.number_code.first == digit {
 				state.first = digit
 				state.deadline_ms = now_ms+timeout_ms
 				return {}, false, true
 			}
 			if action.enabled && action.number_code.digits == 1 && action.number_code.first == digit {
-				activation, activated := ui.activate_action(ctx, action.id, .Numbered)
+				activation, activated := ui.activate_action_in_view(registry, action.id, .Numbered)
 				return activation, activated, activated
 			}
 		}
@@ -76,7 +96,7 @@ consume_numbered_digit :: proc(
 	}
 	first := state.first
 	state^ = {}
-	activation, activated := numbered_activation(ctx, first, digit, 2)
+	activation, activated := numbered_activation_view(registry, first, digit, 2)
 	return activation, activated, true
 }
 
@@ -126,21 +146,59 @@ pointer_activation :: proc(
 	kind: Pointer_Event_Kind,
 	point: ui.Vec2,
 ) -> (ui.Activation, bool) {
+	return pointer_activation_view(
+		ui.registry_view_from_records(
+			ctx.published.actions[:],
+			ctx.published.controls[:],
+			ctx.published.frame,
+		),
+		kind,
+		point,
+	)
+}
+
+pointer_activation_view :: proc(
+	registry: ui.Registry_View,
+	kind: Pointer_Event_Kind,
+	point: ui.Vec2,
+) -> (ui.Activation, bool) {
 	capability := pointer_capability(kind)
-	control := ui.hit_test(ctx, point, capability)
+	control := ui.hit_test_view(registry, point, capability)
 	if control == nil {return {}, false}
-	activation, ok := ui.activate_control(ctx, control.id, .Pointer, point)
+	activation, ok := ui.activate_control_with_capability_in_view(
+		registry,
+		control.id,
+		.Pointer,
+		capability,
+		point,
+	)
 	if !ok {return {}, false}
 	return activation, true
 }
 
 numbered_activation :: proc(ctx: ^ui.Context, first, second, digits: i8) -> (ui.Activation, bool) {
-	for &action in ctx.published.actions {
+	return numbered_activation_view(
+		ui.registry_view_from_records(
+			ctx.published.actions[:],
+			ctx.published.controls[:],
+			ctx.published.frame,
+		),
+		first,
+		second,
+		digits,
+	)
+}
+
+numbered_activation_view :: proc(
+	registry: ui.Registry_View,
+	first, second, digits: i8,
+) -> (ui.Activation, bool) {
+	for &action in registry.actions {
 		if !action.enabled || action.number_code.digits != digits ||
 		   action.number_code.first != first || action.number_code.second != second {
 			continue
 		}
-		return ui.activate_action(ctx, action.id, .Numbered)
+		return ui.activate_action_in_view(registry, action.id, .Numbered)
 	}
 	return {}, false
 }
@@ -150,13 +208,29 @@ functional_activation :: proc(
 	functional_name: string,
 	source := ui.Activation_Source.CLI,
 ) -> (ui.Activation, bool) {
-	for &control in ctx.published.controls {
+	return functional_activation_view(
+		ui.registry_view_from_records(
+			ctx.published.actions[:],
+			ctx.published.controls[:],
+			ctx.published.frame,
+		),
+		functional_name,
+		source,
+	)
+}
+
+functional_activation_view :: proc(
+	registry: ui.Registry_View,
+	functional_name: string,
+	source := ui.Activation_Source.CLI,
+) -> (ui.Activation, bool) {
+	for &control in registry.controls {
 		if control.functional_name != functional_name {continue}
-		return ui.activate_control(ctx, control.id, source)
+		return ui.activate_control_in_view(registry, control.id, source)
 	}
-	for &action in ctx.published.actions {
+	for &action in registry.actions {
 		if action.functional_name == functional_name {
-			return ui.activate_action(ctx, action.id, source)
+			return ui.activate_action_in_view(registry, action.id, source)
 		}
 	}
 	return {}, false
@@ -166,13 +240,27 @@ accessibility_elements :: proc(
 	ctx: ^ui.Context,
 	allocator := context.allocator,
 ) -> []Accessibility_Element {
+	return accessibility_elements_from_view(
+		ui.registry_view_from_records(
+			ctx.published.actions[:],
+			ctx.published.controls[:],
+			ctx.published.frame,
+		),
+		allocator,
+	)
+}
+
+accessibility_elements_from_view :: proc(
+	registry: ui.Registry_View,
+	allocator := context.allocator,
+) -> []Accessibility_Element {
 	count := 0
-	for &control in ctx.published.controls {
+	for &control in registry.controls {
 		if .Accessibility in control.capabilities {count += 1}
 	}
 	result := make([]Accessibility_Element, count, allocator)
 	next := 0
-	for &control in ctx.published.controls {
+	for &control in registry.controls {
 		if .Accessibility not_in control.capabilities {continue}
 		result[next] = {
 			control_id = control.id,
@@ -193,13 +281,27 @@ accessibility_elements_destroy :: proc(elements: []Accessibility_Element, alloca
 }
 
 flash_targets :: proc(ctx: ^ui.Context, allocator := context.allocator) -> []Flash_Target {
+	return flash_targets_from_view(
+		ui.registry_view_from_records(
+			ctx.published.actions[:],
+			ctx.published.controls[:],
+			ctx.published.frame,
+		),
+		allocator,
+	)
+}
+
+flash_targets_from_view :: proc(
+	registry: ui.Registry_View,
+	allocator := context.allocator,
+) -> []Flash_Target {
 	count := 0
-	for &control in ctx.published.controls {
+	for &control in registry.controls {
 		if control.enabled && .Flash in control.capabilities {count += 1}
 	}
 	result := make([]Flash_Target, count, allocator)
 	next := 0
-	for &control in ctx.published.controls {
+	for &control in registry.controls {
 		if !control.enabled || .Flash not_in control.capabilities {continue}
 		result[next] = {
 			control_id = control.id,

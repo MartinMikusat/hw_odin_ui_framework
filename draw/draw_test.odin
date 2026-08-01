@@ -71,3 +71,24 @@ nested_bucket_preserves_order_and_merges_only_adjacent_state_test :: proc(t: ^te
 	testing.expect_value(t, parent.trace[1].label, "child")
 	testing.expect_value(t, parent.trace[2].label, "after")
 }
+
+@(test)
+nested_transforms_and_bucket_state_compose_test :: proc(t: ^testing.T) {
+	parent, child: Bucket
+	bucket_init(&parent)
+	defer bucket_destroy(&parent)
+	bucket_init(&child)
+	defer bucket_destroy(&child)
+	push_transform(&parent, {m00 = 2, m11 = 2, tx = 10, ty = 20})
+	push_opacity(&parent, 0.5)
+	push_clip(&parent, {0, 0, 20, 20})
+	push_transform(&child, {m00 = 1, m11 = 1, tx = 3, ty = 4})
+	push_clip(&child, {5, 5, 20, 20})
+	solid(&child, {0, 0, 4, 4}, {1, 1, 1, 1})
+	append_bucket(&parent, &child)
+	testing.expect_value(t, len(parent.batches), 1)
+	key := parent.batches[0].key
+	testing.expect_value(t, key.transform, Transform_2D{2, 0, 0, 2, 16, 28})
+	testing.expect_value(t, key.opacity, f32(0.5))
+	testing.expect_value(t, key.clip, Rect{5, 5, 15, 15})
+}

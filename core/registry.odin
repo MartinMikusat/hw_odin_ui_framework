@@ -2,6 +2,7 @@ package ui
 
 import "core:strings"
 import "core:mem"
+import draw "ui_framework:draw"
 
 Registry_Builder :: struct {
 	allocator:    mem.Allocator,
@@ -16,6 +17,25 @@ Registry_View :: struct {
 	actions:  []Action_Record,
 	controls: []Control_Record,
 	frame:    u64,
+}
+
+Registry_Issue_Kind :: enum {
+	Zero_Action_ID,
+	Zero_Control_ID,
+	Duplicate_Action_ID,
+	Duplicate_Control_ID,
+	Duplicate_Functional_Name,
+	Missing_Action,
+	Invalid_Rect,
+	Invalid_Number_Code,
+	Missing_Accessibility_Label,
+	Missing_Flash_Label,
+}
+
+Registry_Issue :: struct {
+	kind: Registry_Issue_Kind,
+	id:   Key,
+	name: string,
 }
 
 registry_begin :: proc(frame: u64, allocator := context.allocator) -> Registry_Builder {
@@ -58,6 +78,107 @@ registry_view_from_records :: proc(
 	return {actions, controls, frame}
 }
 
+registry_validate :: proc(
+	registry: Registry_View,
+	allocator := context.allocator,
+) -> []Registry_Issue {
+	issues := make([dynamic]Registry_Issue, allocator)
+	for action, index in registry.actions {
+		if action.id == Action_ID(0) {
+			append(&issues, Registry_Issue{
+				kind = .Zero_Action_ID,
+				name = action.functional_name,
+			})
+		}
+		code := action.number_code
+		if code.digits < 0 || code.digits > 2 ||
+		   (code.digits > 0 && (code.first < 1 || code.first > 9)) ||
+		   (code.digits == 2 && (code.second < 1 || code.second > 9)) {
+			append(&issues, Registry_Issue{
+				kind = .Invalid_Number_Code,
+				name = action.functional_name,
+			})
+		}
+		for other in index+1..<len(registry.actions) {
+			if action.id == registry.actions[other].id {
+				append(&issues, Registry_Issue{
+					.Duplicate_Action_ID,
+					Key(action.id),
+					action.functional_name,
+				})
+			}
+		}
+	}
+	for control, index in registry.controls {
+		if control.id == Key(0) {
+			append(&issues, Registry_Issue{
+				kind = .Zero_Control_ID,
+				name = control.functional_name,
+			})
+		}
+		if draw.rect_is_empty(control.rect) {
+			append(&issues, Registry_Issue{
+				.Invalid_Rect,
+				control.id,
+				control.functional_name,
+			})
+		}
+		if control.action != Action_ID(0) &&
+		   find_action(registry.actions, control.action) == nil {
+			append(&issues, Registry_Issue{
+				.Missing_Action,
+				control.id,
+				control.functional_name,
+			})
+		}
+		if .Accessibility in control.capabilities &&
+		   len(control.accessibility_label) == 0 {
+			append(&issues, Registry_Issue{
+				.Missing_Accessibility_Label,
+				control.id,
+				control.functional_name,
+			})
+		}
+		if .Flash in control.capabilities && len(control.flash_label) == 0 {
+			append(&issues, Registry_Issue{
+				.Missing_Flash_Label,
+				control.id,
+				control.functional_name,
+			})
+		}
+		for other in index+1..<len(registry.controls) {
+			next := registry.controls[other]
+			if control.id == next.id {
+				append(&issues, Registry_Issue{
+					.Duplicate_Control_ID,
+					control.id,
+					control.functional_name,
+				})
+			}
+			if len(control.functional_name) > 0 &&
+			   control.functional_name == next.functional_name {
+				append(&issues, Registry_Issue{
+					.Duplicate_Functional_Name,
+					control.id,
+					control.functional_name,
+				})
+			}
+		}
+	}
+	return issues[:]
+}
+
+registry_assert_valid :: proc(
+	registry: Registry_View,
+	allocator := context.allocator,
+) {
+	when ODIN_DEBUG {
+		issues := registry_validate(registry, allocator)
+		defer delete(issues, allocator)
+		assert(len(issues) == 0, "published control registry is invalid")
+	}
+}
+
 hit_test_records :: proc(
 	controls: []Control_Record,
 	point: Vec2,
@@ -92,6 +213,70 @@ action_in_view :: proc(registry: Registry_View, id: Action_ID) -> ^Action_Record
 control_in_view :: proc(registry: Registry_View, id: Key) -> ^Control_Record {
 	for &control in registry.controls {if control.id == id {return &control}}
 	return nil
+}
+
+activate_control_with_capability_in_view :: proc(
+	registry: Registry_View,
+	control_id: Key,
+	source: Activation_Source,
+	capability: Control_Capability,
+	point: Vec2 = {},
+) -> (Activation, bool) {
+	control := control_in_view(registry, control_id)
+	if control == nil || !control.enabled || capability not_in control.capabilities {
+		return {}, false
+	}
+	normalized: Vec2
+	if control.rect.w > 0 {normalized.x = (point.x-control.rect.x)/control.rect.w}
+	if control.rect.h > 0 {normalized.y = (point.y-control.rect.y)/control.rect.h}
+	return {
+		action = control.action,
+		control = control.id,
+		source = source,
+		point = point,
+		normalized = normalized,
+	}, true
+}
+
+activate_control_in_view :: proc(
+	registry: Registry_View,
+	control_id: Key,
+	source: Activation_Source,
+	point: Vec2 = {},
+) -> (Activation, bool) {
+	return activate_control_with_capability_in_view(
+		registry,
+		control_id,
+		source,
+		capability_for_source(source),
+		point,
+	)
+}
+
+activate_action_in_view :: proc(
+	registry: Registry_View,
+	action_id: Action_ID,
+	source: Activation_Source,
+) -> (Activation, bool) {
+	action := action_in_view(registry, action_id)
+	if action == nil || !action.enabled {return {}, false}
+	return {action = action_id, source = source}, true
+}
+
+activate_at_point_in_view :: proc(
+	registry: Registry_View,
+	point: Vec2,
+	capability := Control_Capability.Primary_Press,
+) -> (Activation, bool) {
+	control := hit_test_view(registry, point, capability)
+	if control == nil {return {}, false}
+	return activate_control_with_capability_in_view(
+		registry,
+		control.id,
+		.Pointer,
+		capability,
+		point,
+	)
 }
 
 registry_add_action :: proc(registry: ^Registry_Builder, action: Action_Record) {

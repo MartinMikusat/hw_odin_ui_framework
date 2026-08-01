@@ -14,6 +14,14 @@ Widget_Result :: struct {
 	signal: ui.Signal,
 }
 
+Virtual_List :: struct {
+	key:           ui.Key,
+	first:         int,
+	one_past_last: int,
+	row_count:     int,
+	row_height:    f32,
+}
+
 mix_color :: proc(a, b: draw.Color, amount: f32) -> draw.Color {
 	t := min(max(amount, 0), 1)
 	result: draw.Color
@@ -30,6 +38,12 @@ label :: proc(
 	box := ui.box_from_declarations(frame, label_string, {.Draw_Text})
 	box.layout = layout
 	box.style = style
+	return ui.box_add(frame, box)
+}
+
+spacer :: proc(frame: ^ui.Frame, label_string: string, layout: ui.Layout) -> int {
+	box := ui.box_from_declarations(frame, label_string)
+	box.layout = layout
 	return ui.box_add(frame, box)
 }
 
@@ -134,4 +148,67 @@ visible_row_range :: proc(
 	visible := int(viewport_height/row_height)+2+overscan*2
 	one_past_last = min(row_count, first+visible)
 	return
+}
+
+virtual_list_begin :: proc(
+	frame: ^ui.Frame,
+	label_string: string,
+	layout: ui.Layout,
+	style: ui.Style,
+	row_count: int,
+	row_height: f32,
+	overscan: int = 1,
+) -> Virtual_List {
+	list_layout := layout
+	list_layout.flow = .Overlay
+	list_layout.main_align = .End
+	result := scroll_area_begin(frame, label_string, list_layout, style)
+	state := ui.get_state(frame.ui, result.key)
+	viewport_height := state.last_rect.h
+	if viewport_height <= 0 && layout.height.kind == .Points {
+		viewport_height = layout.height.value
+	}
+	first, one_past_last := 0, row_count
+	if viewport_height > 0 {
+		first, one_past_last = visible_row_range(
+			state,
+			row_height,
+			viewport_height,
+			row_count,
+			overscan,
+		)
+	}
+	content := ui.box_from_declarations(frame, "virtual list content", {})
+	content.layout = {
+		width = ui.percent(1),
+		height = ui.points(max(f32(0), row_height*f32(row_count))),
+		flow = .Column,
+		cross_align = .Stretch,
+	}
+	_ = ui.box_begin(frame, content)
+	if first > 0 {
+		_ = spacer(frame, "virtual list leading space", {
+			width = ui.percent(1),
+			height = ui.points(row_height*f32(first)),
+		})
+	}
+	return {
+		key = result.key,
+		first = first,
+		one_past_last = one_past_last,
+		row_count = row_count,
+		row_height = row_height,
+	}
+}
+
+virtual_list_end :: proc(frame: ^ui.Frame, list: Virtual_List) {
+	remaining_rows := max(0, list.row_count-list.one_past_last)
+	if remaining_rows > 0 {
+		_ = spacer(frame, "virtual list trailing space", {
+			width = ui.percent(1),
+			height = ui.points(list.row_height*f32(remaining_rows)),
+		})
+	}
+	ui.box_end(frame)
+	scroll_area_end(frame)
 }

@@ -233,6 +233,7 @@ font_name :: proc(value: ^Context, handle: ui.Font_Handle) -> string {
 
 begin_frame :: proc(value: ^Context, backing_scale: f32, io: Atlas_IO = {}) {
 	assert(value != nil)
+	collect_retired(value)
 	for &run in value.runs {release_run(value, &run)}
 	clear(&value.runs)
 	value.frame += 1
@@ -370,17 +371,22 @@ shape :: proc(value: ^Context, font: ui.Font_Handle, text: string, size, trackin
 	return &value.runs[len(value.runs)-1]
 }
 
-measure_callback :: proc(
+prepare_callback :: proc(
 	data: rawptr,
 	font: ui.Font_Handle,
 	text: string,
 	size, tracking, maximum_width: f32,
 	truncate: bool,
-) -> ui.Text_Metrics {
+) -> ui.Prepared_Text {
 	value := (^Context)(data)
 	run := shape(value, font, text, size, tracking, maximum_width, truncate)
 	if run == nil {return {}}
-	return run.metrics
+	for &candidate, index in value.runs {
+		if &candidate == run {
+			return {ui.Text_Run_ID(index+1), run.metrics}
+		}
+	}
+	return {}
 }
 
 page_limit :: proc(format: Atlas_Format) -> int {
@@ -540,21 +546,20 @@ text_origin :: proc(rect: draw.Rect, metrics: ui.Text_Metrics, style: ui.Text_St
 emit_callback :: proc(
 	data: rawptr,
 	list: ^draw.List,
-	font: ui.Font_Handle,
-	text: string,
+	run_id: ui.Text_Run_ID,
+	label: string,
 	rect: draw.Rect,
 	style: ui.Text_Style,
 	color: draw.Color,
 ) {
 	value := (^Context)(data)
-	maximum_width := f32(0)
-	if style.truncate {maximum_width = max(f32(0), rect.w-style.inset*2)}
-	run := shape(value, font, text, style.size, style.tracking, maximum_width, style.truncate)
-	if run == nil {return}
+	index := int(run_id)-1
+	if index < 0 || index >= len(value.runs) {return}
+	run := &value.runs[index]
 	origin := text_origin(rect, run.metrics, style)
 	draw.push_clip(list, rect)
 	defer draw.pop_clip(list)
-	emit_shaped_run(value, list, run, origin, color, text)
+	emit_shaped_run(value, list, run, origin, color, label)
 }
 
 emit_shaped_run :: proc(
@@ -609,7 +614,7 @@ emit_native_line :: proc(
 }
 
 backend :: proc(value: ^Context) -> ui.Text_Backend {
-	return {user_data = value, measure = measure_callback, emit = emit_callback}
+	return {user_data = value, prepare = prepare_callback, emit = emit_callback}
 }
 
 flush :: proc(value: ^Context) {

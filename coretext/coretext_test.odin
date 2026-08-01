@@ -30,6 +30,39 @@ coretext_measurement_and_cached_shape_share_one_line_test :: proc(t: ^testing.T)
 }
 
 @(test)
+prepared_run_handle_emits_without_reshaping_test :: proc(t: ^testing.T) {
+	value: Context
+	context_init(&value)
+	defer context_destroy(&value)
+	register_font(&value, ui.Font_Handle(1), "Menlo-Regular")
+	begin_frame(&value, 2)
+	prepared := prepare_callback(
+		&value,
+		ui.Font_Handle(1),
+		"prepared text",
+		12,
+		0,
+		0,
+		false,
+	)
+	testing.expect(t, prepared.run != ui.Text_Run_ID(0))
+	run_count := len(value.runs)
+	list: draw.List
+	draw.list_init(&list)
+	defer draw.list_destroy(&list)
+	emit_callback(
+		&value,
+		&list,
+		prepared.run,
+		"prepared text",
+		{0, 0, 200, 30},
+		{size = 12, vertical = .Center},
+		{1, 1, 1, 1},
+	)
+	testing.expect_value(t, len(value.runs), run_count)
+}
+
+@(test)
 truncation_and_hit_positions_use_the_shaped_coretext_line_test :: proc(t: ^testing.T) {
 	value: Context
 	context_init(&value)

@@ -100,6 +100,17 @@ rect_intersection :: proc(a, b: Rect) -> Rect {
 	return {x0, y0, max(f32(0), x1-x0), max(f32(0), y1-y0)}
 }
 
+transform_compose :: proc(parent, child: Transform_2D) -> Transform_2D {
+	return {
+		m00 = parent.m00*child.m00+parent.m10*child.m01,
+		m01 = parent.m01*child.m00+parent.m11*child.m01,
+		m10 = parent.m00*child.m10+parent.m10*child.m11,
+		m11 = parent.m01*child.m10+parent.m11*child.m11,
+		tx = parent.m00*child.tx+parent.m10*child.ty+parent.tx,
+		ty = parent.m01*child.tx+parent.m11*child.ty+parent.ty,
+	}
+}
+
 list_init :: proc(list: ^List, allocator := context.allocator) {
 	assert(list != nil)
 	list^ = List{allocator = allocator}
@@ -159,13 +170,26 @@ end_group :: proc(list: ^List, label: string = "") {
 }
 
 append_bucket :: proc(list: ^List, bucket: ^Bucket) {
-	assert(list != nil && bucket != nil)
+	assert(list != nil && bucket != nil && list != bucket)
+	parent_clip, parent_clip_set := top_clip(list)
+	parent_transform := top_transform(list)
+	parent_opacity := top_opacity(list)
 	batch_map := make([]int, len(bucket.batches), context.temp_allocator)
 	defer delete(batch_map, context.temp_allocator)
 	for source, source_index in bucket.batches {
+		key := source.key
+		if parent_clip_set {
+			key.clip = parent_clip
+			if source.key.clip_set {
+				key.clip = rect_intersection(parent_clip, source.key.clip)
+			}
+			key.clip_set = true
+		}
+		key.transform = transform_compose(parent_transform, source.key.transform)
+		key.opacity *= parent_opacity
 		destination_index := len(list.batches)-1
-		if destination_index < 0 || list.batches[destination_index].key != source.key {
-			copy := Batch{key = source.key}
+		if destination_index < 0 || list.batches[destination_index].key != key {
+			copy := Batch{key = key}
 			copy.instances = make(
 				[dynamic]Quad_Instance,
 				0,
@@ -213,7 +237,7 @@ pop_clip :: proc(list: ^List) {
 }
 
 push_transform :: proc(list: ^List, transform: Transform_2D) {
-	append(&list.transform_stack, transform)
+	append(&list.transform_stack, transform_compose(top_transform(list), transform))
 }
 
 pop_transform :: proc(list: ^List) {

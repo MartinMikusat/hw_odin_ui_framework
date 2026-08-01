@@ -63,10 +63,24 @@ offsets, clamp them to measured content bounds, and animate the visible offset.
 Scoped declarations provide layout, style, flag, and layer defaults. A next-box
 declaration applies once. Widgets and application boxes use the same keyed tree.
 
+Base, popup, tooltip, modal, and debug layers render in a fixed order. An input
+root restricts pointer publication to one subtree. Explicit pass-through controls
+can keep window operations available while a modal owns application input.
+
 The draw stream preserves submission order. The renderer combines adjacent
 compatible instances only. It does not sort rectangles, text, or textures.
 Nested buckets splice complete draw streams into their parent without changing
-relative order.
+relative order. Parent transforms, clips, and opacity compose into each nested
+bucket before Metal encodes its instances.
+
+CoreText returns an opaque prepared-run handle. The box stores that handle and
+uses its metrics for alignment. Glyph emission consumes the same handle, so the
+measurement and draw paths cannot shape different text.
+
+`Registry_View` exposes borrowed frame records without cloning. A persistent
+`Registry_Builder` supports callbacks that outlive a frame arena. Both forms use
+the same validation, hit testing, activation, Accessibility, Flash, CLI, and
+numbered-input adapters.
 
 ## Verification
 
