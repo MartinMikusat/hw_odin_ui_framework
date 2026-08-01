@@ -12,6 +12,12 @@ Registry_Builder :: struct {
 	frame:        u64,
 }
 
+Registry_View :: struct {
+	actions:  []Action_Record,
+	controls: []Control_Record,
+	frame:    u64,
+}
+
 registry_begin :: proc(frame: u64, allocator := context.allocator) -> Registry_Builder {
 	result := Registry_Builder{allocator = allocator, frame = frame}
 	result.actions = make([dynamic]Action_Record, allocator)
@@ -28,6 +34,56 @@ registry_destroy :: proc(registry: ^Registry_Builder) {
 	delete(registry.seen_actions)
 	delete(registry.seen_controls)
 	registry^ = {}
+}
+
+registry_reset :: proc(registry: ^Registry_Builder, frame: u64) {
+	assert(registry != nil)
+	clear(&registry.actions)
+	clear(&registry.controls)
+	clear(&registry.seen_actions)
+	clear(&registry.seen_controls)
+	registry.frame = frame
+}
+
+registry_view :: proc(registry: ^Registry_Builder) -> Registry_View {
+	if registry == nil {return {}}
+	return {registry.actions[:], registry.controls[:], registry.frame}
+}
+
+hit_test_records :: proc(
+	controls: []Control_Record,
+	point: Vec2,
+	capability := Control_Capability.Primary_Press,
+) -> ^Control_Record {
+	best: ^Control_Record
+	best_layer := Layer.Base
+	for index := len(controls)-1; index >= 0; index -= 1 {
+		control := &controls[index]
+		if !control.enabled || capability not_in control.capabilities ||
+		   !control_contains(control, point) {continue}
+		if best == nil || control.layer > best_layer {
+			best = control
+			best_layer = control.layer
+		}
+	}
+	return best
+}
+
+hit_test_view :: proc(
+	registry: Registry_View,
+	point: Vec2,
+	capability := Control_Capability.Primary_Press,
+) -> ^Control_Record {
+	return hit_test_records(registry.controls, point, capability)
+}
+
+action_in_view :: proc(registry: Registry_View, id: Action_ID) -> ^Action_Record {
+	return find_action(registry.actions, id)
+}
+
+control_in_view :: proc(registry: Registry_View, id: Key) -> ^Control_Record {
+	for &control in registry.controls {if control.id == id {return &control}}
+	return nil
 }
 
 registry_add_action :: proc(registry: ^Registry_Builder, action: Action_Record) {
