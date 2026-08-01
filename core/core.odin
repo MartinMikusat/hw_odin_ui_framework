@@ -294,6 +294,8 @@ Signal_Flag :: enum {
 	Mouse_Over,
 	Scrolled,
 	Keyboard_Pressed,
+	Keyboard_Released,
+	Text_Input,
 	Focused,
 }
 
@@ -307,6 +309,8 @@ Signal :: struct {
 	point:    Vec2,
 	delta:    Vec2,
 	modifiers: Modifiers,
+	key:      u32,
+	text:     string,
 }
 
 Animation :: struct {
@@ -516,6 +520,9 @@ clear_published :: proc(ui: ^Context) {
 		delete(control.functional_name, ui.allocator)
 		delete(control.accessibility_label, ui.allocator)
 		delete(control.flash_label, ui.allocator)
+	}
+	for &signal in ui.published.signals {
+		delete(signal.text, ui.allocator)
 	}
 	clear(&ui.published.actions)
 	clear(&ui.published.controls)
@@ -1184,10 +1191,10 @@ emit_layers :: proc(frame: ^Frame) {
 	}
 }
 
-purge_old_state :: proc(ui: ^Context) {
+purge_old_state :: proc(ui: ^Context, allocator: mem.Allocator) {
 	cutoff := u64(0)
 	if ui.frame > 120 {cutoff = ui.frame-120}
-	remove := make([dynamic]Key, context.temp_allocator)
+	remove := make([dynamic]Key, allocator)
 	defer delete(remove)
 	for key, state in ui.states {if state.last_seen_frame < cutoff {append(&remove, key)}}
 	for key in remove {delete_key(&ui.states, key)}
@@ -1205,8 +1212,12 @@ end_frame :: proc(frame: ^Frame) -> Frame_Output {
 	prepare_final_text_runs(frame)
 	emit_layers(frame)
 	process_events(frame)
-	update_builtin_animations(frame.ui, frame.input.delta_seconds)
-	purge_old_state(frame.ui)
+	update_builtin_animations(
+		frame.ui,
+		frame.input.delta_seconds,
+		frame.allocator,
+	)
+	purge_old_state(frame.ui, frame.allocator)
 	return {
 		draw_list = &frame.draw_list,
 		actions = frame.actions[:],
@@ -1220,7 +1231,11 @@ end_frame :: proc(frame: ^Frame) -> Frame_Output {
 publish :: proc(ui: ^Context, output: Frame_Output) {
 	assert(ui != nil)
 	publish_records(ui, output.actions, output.controls, output.frame)
-	for signal in output.signals {append(&ui.published.signals, signal)}
+	for signal in output.signals {
+		copy := signal
+		copy.text = strings.clone(signal.text, ui.allocator)
+		append(&ui.published.signals, copy)
+	}
 }
 
 contains :: proc(rect: draw.Rect, point: Vec2) -> bool {

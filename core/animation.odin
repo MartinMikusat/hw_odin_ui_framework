@@ -1,5 +1,7 @@
 package ui
 
+import "core:mem"
+
 animation_step :: proc(current, target, rate, delta_seconds, epsilon: f32) -> (f32, bool) {
 	if abs(target-current) <= epsilon {return target, false}
 	if delta_seconds <= 0 || rate <= 0 {return current, true}
@@ -49,7 +51,11 @@ animation_key :: proc(box: Key, property: string) -> Key {
 	return key_combine(box, property)
 }
 
-update_builtin_animations :: proc(ui: ^Context, delta_seconds: f32) {
+update_builtin_animations :: proc(
+	ui: ^Context,
+	delta_seconds: f32,
+	allocator: mem.Allocator,
+) {
 	for key, state_value in ui.states {
 		state := state_value
 		state.hot_t, _ = animate(
@@ -85,7 +91,7 @@ update_builtin_animations :: proc(ui: ^Context, delta_seconds: f32) {
 
 	cutoff := u64(0)
 	if ui.frame > 240 {cutoff = ui.frame-240}
-	remove := make([dynamic]Key, context.temp_allocator)
+	remove := make([dynamic]Key, allocator)
 	defer delete(remove)
 	for key, value in ui.animations {
 		if value.last_seen_frame < cutoff {append(&remove, key)}

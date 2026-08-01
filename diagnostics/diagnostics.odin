@@ -104,7 +104,11 @@ frame_report_make :: proc(frame: ^ui.Frame, allocator := context.allocator) -> F
 		append(&result.events, copy)
 		if event.consumed {result.consumed_events += 1}
 	}
-	append(&result.signals, ..frame.signals[:])
+	for signal in frame.signals {
+		copy := signal
+		copy.text = strings.clone(signal.text, allocator)
+		append(&result.signals, copy)
+	}
 	for control in frame.controls {
 		append(&result.controls, Control{
 			id = control.id,
@@ -127,6 +131,7 @@ frame_report_destroy :: proc(report: ^Frame_Report) {
 	if report == nil {return}
 	for &box in report.boxes {delete(box.label, report.allocator)}
 	for &event in report.events {delete(event.text, report.allocator)}
+	for &signal in report.signals {delete(signal.text, report.allocator)}
 	for &control in report.controls {delete(control.functional_name, report.allocator)}
 	for &trace in report.render_trace {delete(trace.label, report.allocator)}
 	delete(report.boxes)

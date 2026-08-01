@@ -1,5 +1,7 @@
 package ui
 
+import "core:mem"
+
 Navigation_Direction :: enum {
 	Previous,
 	Next,
@@ -55,9 +57,12 @@ focus_move :: proc(
 	ui: ^Context,
 	direction: Navigation_Direction,
 	root: Key = Key(0),
+	allocator: mem.Allocator = {},
 ) -> (Key, bool) {
 	if ui == nil {return Key(0), false}
-	candidates := make([dynamic]^Control_Record, context.temp_allocator)
+	use_allocator := allocator
+	if use_allocator.procedure == nil {use_allocator = ui.allocator}
+	candidates := make([dynamic]^Control_Record, use_allocator)
 	defer delete(candidates)
 	for &control in ui.published.controls {
 		if !control.enabled || !control.focusable {continue}

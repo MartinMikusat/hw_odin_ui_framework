@@ -53,7 +53,8 @@ do not reset interaction state.
 
 Pointer, scroll, keyboard, text, and file-drop events enter one ordered queue.
 Controls consume matching events and emit signals. The context retains hot,
-active, focus, scroll, and animation values for the next frame.
+active, focus, disabled, scroll, and animation values for the next frame. Key
+and text payloads remain owned through frame publication.
 
 Layout runs standalone and upward-dependent size passes on each axis. The
 downward arrangement pass resolves percentages and remaining space, then

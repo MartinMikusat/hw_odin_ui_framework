@@ -83,6 +83,8 @@ signal_add :: proc(frame: ^Frame, value: Signal) {
 		signal.delta.y += value.delta.y
 		signal.button = value.button
 		signal.modifiers += value.modifiers
+		if value.key != 0 {signal.key = value.key}
+		if len(value.text) > 0 {signal.text = value.text}
 		return
 	}
 	append(&frame.signals, value)
@@ -246,9 +248,32 @@ process_events :: proc(frame: ^Frame) {
 				action = control.action,
 				flags = {.Keyboard_Pressed, .Focused},
 				modifiers = event.modifiers,
+				key = event.key,
 			})
 			event.consumed = true
-		case .Key_Release, .Text, .File_Drop:
+		case .Key_Release:
+			control := frame_control(frame, ui.focused)
+			if control == nil || .Direct_Keyboard not_in control.capabilities {continue}
+			signal_add(frame, {
+				control = control.id,
+				action = control.action,
+				flags = {.Keyboard_Released, .Focused},
+				modifiers = event.modifiers,
+				key = event.key,
+			})
+			event.consumed = true
+		case .Text:
+			control := frame_control(frame, ui.focused)
+			if control == nil || .Editable not_in control.capabilities {continue}
+			signal_add(frame, {
+				control = control.id,
+				action = control.action,
+				flags = {.Text_Input, .Focused},
+				modifiers = event.modifiers,
+				text = event.text,
+			})
+			event.consumed = true
+		case .File_Drop:
 		}
 	}
 

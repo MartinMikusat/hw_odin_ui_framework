@@ -191,8 +191,8 @@ append_bucket :: proc(list: ^List, bucket: ^Bucket) {
 	parent_clip, parent_clip_set := top_clip(list)
 	parent_transform := top_transform(list)
 	parent_opacity := top_opacity(list)
-	batch_map := make([]int, len(bucket.batches), context.temp_allocator)
-	defer delete(batch_map, context.temp_allocator)
+	batch_map := make([]int, len(bucket.batches), list.allocator)
+	defer delete(batch_map, list.allocator)
 	for source, source_index in bucket.batches {
 		key := source.key
 		if source.key.clip_set {

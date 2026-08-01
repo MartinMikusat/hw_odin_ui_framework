@@ -385,6 +385,54 @@ event_queue_retains_active_state_and_emits_click_on_release_test :: proc(t: ^tes
 }
 
 @(test)
+text_and_key_events_retain_payloads_through_frame_publication_test :: proc(
+	t: ^testing.T,
+) {
+	ctx: Context
+	context_init(&ctx)
+	defer context_destroy(&ctx)
+	action := action_id_from_string("edit")
+	key := key_from_string("editor")
+	frame := begin_frame(&ctx, {viewport = {0, 0, 100, 40}})
+	register_action(&frame, {id = action, enabled = true})
+	_ = box_add(&frame, Box{
+		key = key,
+		layout = {position = .Absolute, absolute = {0, 0, 100, 40}},
+		flags = {.Interactive, .Click_To_Focus},
+		control = {
+			action = action,
+			capabilities = {.Primary_Press, .Direct_Keyboard, .Editable},
+		},
+	})
+	output := end_frame(&frame)
+	publish(&ctx, output)
+	frame_destroy(&frame)
+	ctx.focused = key
+	queue_event(&ctx, {kind = .Key_Press, key = 42})
+	queue_event(&ctx, {kind = .Text, text = "é"})
+	frame = begin_frame(&ctx, {viewport = {0, 0, 100, 40}})
+	register_action(&frame, {id = action, enabled = true})
+	_ = box_add(&frame, Box{
+		key = key,
+		layout = {position = .Absolute, absolute = {0, 0, 100, 40}},
+		flags = {.Interactive, .Click_To_Focus},
+		control = {
+			action = action,
+			capabilities = {.Primary_Press, .Direct_Keyboard, .Editable},
+		},
+	})
+	signal := signal_for_key(frame.signals[:], key)
+	testing.expect(t, .Keyboard_Pressed in signal.flags)
+	testing.expect(t, .Text_Input in signal.flags)
+	testing.expect_value(t, signal.key, u32(42))
+	testing.expect_value(t, signal.text, "é")
+	output = end_frame(&frame)
+	publish(&ctx, output)
+	frame_destroy(&frame)
+	testing.expect_value(t, ctx.published.signals[0].text, "é")
+}
+
+@(test)
 focus_navigation_stays_inside_the_requested_root_test :: proc(t: ^testing.T) {
 	ctx: Context
 	context_init(&ctx)
