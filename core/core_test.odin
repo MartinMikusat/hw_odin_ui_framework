@@ -290,6 +290,42 @@ layout_strictness_partitions_constraint_violation_test :: proc(t: ^testing.T) {
 	testing.expect_value(t, frame.boxes[flexible].rect.w, f32(20))
 }
 
+@(test)
+remaining_sizes_reserve_minimums_and_report_unavoidable_overflow_test :: proc(
+	t: ^testing.T,
+) {
+	ctx: Context
+	context_init(&ctx)
+	defer context_destroy(&ctx)
+	frame := begin_frame(&ctx, {viewport = {0, 0, 100, 40}})
+	defer frame_destroy(&frame)
+	row := box_begin(&frame, Box{
+		key = key_from_string("remaining minimum row"),
+		layout = {
+			width = percent(1),
+			height = points(40),
+			flow = .Row,
+		},
+	})
+	first_spec := remaining()
+	first_spec.minimum = 80
+	second_spec := remaining()
+	second_spec.minimum = 80
+	first := box_add(&frame, Box{
+		key = key_from_string("first minimum"),
+		layout = {width = first_spec, height = points(40)},
+	})
+	second := box_add(&frame, Box{
+		key = key_from_string("second minimum"),
+		layout = {width = second_spec, height = points(40)},
+	})
+	box_end(&frame)
+	_ = end_frame(&frame)
+	testing.expect_value(t, frame.boxes[first].rect.w, f32(80))
+	testing.expect_value(t, frame.boxes[second].rect.w, f32(80))
+	testing.expect_value(t, frame.boxes[row].overflow.x, f32(60))
+}
+
 build_click_fixture :: proc(ctx: ^Context, pointer: Vec2) -> (Frame, Key) {
 	frame := begin_frame(ctx, {viewport = {0, 0, 100, 100}, pointer = pointer})
 	action := action_id_from_string("activate")

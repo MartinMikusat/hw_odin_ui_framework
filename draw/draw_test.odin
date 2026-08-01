@@ -90,5 +90,17 @@ nested_transforms_and_bucket_state_compose_test :: proc(t: ^testing.T) {
 	key := parent.batches[0].key
 	testing.expect_value(t, key.transform, Transform_2D{2, 0, 0, 2, 16, 28})
 	testing.expect_value(t, key.opacity, f32(0.5))
-	testing.expect_value(t, key.clip, Rect{5, 5, 15, 15})
+	testing.expect_value(t, key.clip, Rect{26, 38, 24, 22})
+}
+
+@(test)
+clip_rect_is_projected_into_render_target_coordinates_test :: proc(t: ^testing.T) {
+	list: List
+	list_init(&list)
+	defer list_destroy(&list)
+	push_transform(&list, {m00 = 0, m01 = 1, m10 = -1, m11 = 0, tx = 20})
+	push_clip(&list, {2, 3, 8, 4})
+	clip, set := top_clip(&list)
+	testing.expect(t, set)
+	testing.expect_value(t, clip, Rect{13, 2, 4, 8})
 }

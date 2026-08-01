@@ -111,6 +111,23 @@ transform_compose :: proc(parent, child: Transform_2D) -> Transform_2D {
 	}
 }
 
+transform_point :: proc(transform: Transform_2D, x, y: f32) -> (f32, f32) {
+	return transform.m00*x+transform.m10*y+transform.tx,
+	       transform.m01*x+transform.m11*y+transform.ty
+}
+
+transform_rect_bounds :: proc(transform: Transform_2D, rect: Rect) -> Rect {
+	x0, y0 := transform_point(transform, rect.x, rect.y)
+	x1, y1 := transform_point(transform, rect.x+rect.w, rect.y)
+	x2, y2 := transform_point(transform, rect.x, rect.y+rect.h)
+	x3, y3 := transform_point(transform, rect.x+rect.w, rect.y+rect.h)
+	left := min(min(x0, x1), min(x2, x3))
+	right := max(max(x0, x1), max(x2, x3))
+	bottom := min(min(y0, y1), min(y2, y3))
+	top := max(max(y0, y1), max(y2, y3))
+	return {left, bottom, right-left, top-bottom}
+}
+
 list_init :: proc(list: ^List, allocator := context.allocator) {
 	assert(list != nil)
 	list^ = List{allocator = allocator}
@@ -178,10 +195,16 @@ append_bucket :: proc(list: ^List, bucket: ^Bucket) {
 	defer delete(batch_map, context.temp_allocator)
 	for source, source_index in bucket.batches {
 		key := source.key
+		if source.key.clip_set {
+			key.clip = transform_rect_bounds(parent_transform, source.key.clip)
+		}
 		if parent_clip_set {
 			key.clip = parent_clip
 			if source.key.clip_set {
-				key.clip = rect_intersection(parent_clip, source.key.clip)
+				key.clip = rect_intersection(
+					parent_clip,
+					transform_rect_bounds(parent_transform, source.key.clip),
+				)
 			}
 			key.clip_set = true
 		}
@@ -224,7 +247,7 @@ top_opacity :: proc(list: ^List) -> f32 {
 
 push_clip :: proc(list: ^List, rect: Rect) {
 	previous, enabled := top_clip(list)
-	next := rect
+	next := transform_rect_bounds(top_transform(list), rect)
 	if enabled {next = rect_intersection(previous, rect)}
 	append(&list.clip_stack, next)
 	append(&list.clip_enabled_stack, true)

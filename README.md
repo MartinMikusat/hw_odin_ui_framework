@@ -73,7 +73,8 @@ The draw stream preserves submission order. The renderer combines adjacent
 compatible instances only. It does not sort rectangles, text, or textures.
 Nested buckets splice complete draw streams into their parent without changing
 relative order. Parent transforms, clips, and opacity compose into each nested
-bucket before Metal encodes its instances.
+bucket before Metal encodes its instances. Clip rectangles are projected into
+render-target coordinates before the renderer converts them to Metal scissors.
 
 CoreText returns an opaque prepared-run handle. The box stores that handle and
 uses its metrics for alignment. Glyph emission consumes the same handle, so the

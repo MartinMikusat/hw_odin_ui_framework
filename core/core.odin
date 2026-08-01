@@ -858,6 +858,23 @@ shrink_size :: proc(size: f32, spec: Size, violation, capacity: f32) -> f32 {
 	return max(spec.minimum, size-share)
 }
 
+resolve_flow_main_size :: proc(
+	spec: Size,
+	desired, available, remaining_extra, remaining_weight: f32,
+	violation, shrinkable: f32,
+) -> f32 {
+	if spec.kind == .Remaining {
+		weight := max(f32(1), spec.value)
+		extra := f32(0)
+		if remaining_weight > 0 {
+			extra = remaining_extra*weight/remaining_weight
+		}
+		return clamp_size(spec.minimum+extra, spec)
+	}
+	resolved := resolve_axis_size(spec, desired, available, 0, 0)
+	return shrink_size(resolved, spec, violation, shrinkable)
+}
+
 translate_subtree :: proc(frame: ^Frame, index: int, delta: Vec2) {
 	box := &frame.boxes[index]
 	box.rect.x += delta.x
@@ -942,6 +959,7 @@ arrange_children :: proc(frame: ^Frame, index: int) {
 	main_available := content.w if horizontal else content.h
 	cross_available := content.h if horizontal else content.w
 	fixed: f32
+	remaining_minimum: f32
 	shrinkable: f32
 	remaining_weight: f32
 	flow_count := 0
@@ -953,6 +971,7 @@ arrange_children :: proc(frame: ^Frame, index: int) {
 		desired := child.desired.x if horizontal else child.desired.y
 		if spec.kind == .Remaining {
 			remaining_weight += max(f32(1), spec.value)
+			remaining_minimum += spec.minimum
 		} else {
 			resolved := resolve_axis_size(spec, desired, main_available, 0, 0)
 			fixed += resolved
@@ -960,13 +979,33 @@ arrange_children :: proc(frame: ^Frame, index: int) {
 		}
 	}
 	gap_total := box.layout.gap*f32(max(0, flow_count-1))
-	violation := max(f32(0), fixed+gap_total-main_available)
+	violation := max(
+		f32(0),
+		fixed+remaining_minimum+gap_total-main_available,
+	)
 	if axis_allows_overflow(box, horizontal) {violation = 0}
 	resolved_violation := min(violation, shrinkable)
 	fixed -= resolved_violation
-	remaining_space := max(f32(0), main_available-fixed-gap_total)
-	used := fixed+gap_total
-	if remaining_weight > 0 {used += remaining_space}
+	remaining_extra := max(
+		f32(0),
+		main_available-fixed-remaining_minimum-gap_total,
+	)
+	used := gap_total
+	for child_index := box.first_child; child_index >= 0; child_index = frame.boxes[child_index].next_sibling {
+		child := &frame.boxes[child_index]
+		if child.layout.position == .Absolute {continue}
+		spec := child.layout.width if horizontal else child.layout.height
+		desired := child.desired.x if horizontal else child.desired.y
+		used += resolve_flow_main_size(
+			spec,
+			desired,
+			main_available,
+			remaining_extra,
+			remaining_weight,
+			resolved_violation,
+			shrinkable,
+		)
+	}
 	main_cursor := f32(0)
 	if box.layout.main_align == .Center {main_cursor = (main_available-used)/2}
 	if box.layout.main_align == .End {main_cursor = main_available-used}
@@ -986,10 +1025,15 @@ arrange_children :: proc(frame: ^Frame, index: int) {
 		cross_spec := child.layout.height if horizontal else child.layout.width
 		main_desired := child.desired.x if horizontal else child.desired.y
 		cross_desired := child.desired.y if horizontal else child.desired.x
-		main_size := resolve_axis_size(main_spec, main_desired, main_available, remaining_space, remaining_weight)
-		if main_spec.kind != .Remaining {
-			main_size = shrink_size(main_size, main_spec, resolved_violation, shrinkable)
-		}
+		main_size := resolve_flow_main_size(
+			main_spec,
+			main_desired,
+			main_available,
+			remaining_extra,
+			remaining_weight,
+			resolved_violation,
+			shrinkable,
+		)
 		cross_size := resolve_axis_size(cross_spec, cross_desired, cross_available, cross_available, 1)
 		if box.layout.cross_align == .Stretch {cross_size = cross_available}
 		if !axis_allows_overflow(box, !horizontal) && cross_size > cross_available {
