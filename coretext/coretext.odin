@@ -25,7 +25,8 @@ Rect :: struct {
 
 foreign import core_foundation "system:CoreFoundation.framework"
 foreign core_foundation {
-	CFStringCreateWithBytes             :: proc "c" (allocator: rawptr, bytes: [^]u8, count: int, encoding: u32, external: bool) -> rawptr ---
+	@(link_name="CFStringCreateWithBytes")
+	ui_CFStringCreateWithBytes          :: proc "c" (allocator: rawptr, bytes: [^]u8, count: int, encoding: u32, external: bool) -> rawptr ---
 	CFStringGetLength                   :: proc "c" (value: rawptr) -> int ---
 	CFAttributedStringCreateMutable     :: proc "c" (allocator: rawptr, maximum_length: int) -> rawptr ---
 	CFAttributedStringReplaceString     :: proc "c" (value: rawptr, range: CF_Range, replacement: rawptr) ---
@@ -257,7 +258,7 @@ shape_key :: proc(font: ui.Font_Handle, text: string, size, tracking, width: f32
 
 cfstring :: proc(value: string) -> rawptr {
 	if len(value) == 0 {return nil}
-	return CFStringCreateWithBytes(nil, raw_data(transmute([]u8)value), len(value), UTF8_ENCODING, false)
+	return ui_CFStringCreateWithBytes(nil, raw_data(transmute([]u8)value), len(value), UTF8_ENCODING, false)
 }
 
 make_line :: proc(value: ^Context, font_handle: ui.Font_Handle, text: string, size, tracking: f32) -> rawptr {

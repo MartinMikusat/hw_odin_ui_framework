@@ -17,7 +17,8 @@ foreign objc {
 foreign import core_foundation "system:CoreFoundation.framework"
 foreign core_foundation {
 	CFStringCreateWithCString :: proc "c" (allocator: rawptr, text: cstring, encoding: u32) -> rawptr ---
-	CFStringCreateWithBytes   :: proc "c" (allocator: rawptr, bytes: [^]u8, count: int, encoding: u32, external: bool) -> rawptr ---
+	@(link_name="CFStringCreateWithBytes")
+	ui_CFStringCreateWithBytes :: proc "c" (allocator: rawptr, bytes: [^]u8, count: int, encoding: u32, external: bool) -> rawptr ---
 	CFRelease                 :: proc "c" (value: rawptr) ---
 }
 
@@ -177,7 +178,7 @@ msg_void_draw_instanced :: proc(receiver: Object, selector: Selector, primitive,
 
 nsstring :: proc(value: string) -> Object {
 	if len(value) == 0 {return CFStringCreateWithCString(nil, "", UTF8_ENCODING)}
-	return CFStringCreateWithBytes(nil, raw_data(transmute([]u8)value), len(value), UTF8_ENCODING, false)
+	return ui_CFStringCreateWithBytes(nil, raw_data(transmute([]u8)value), len(value), UTF8_ENCODING, false)
 }
 
 release :: proc(value: Object) {
