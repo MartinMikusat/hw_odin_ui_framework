@@ -1148,13 +1148,18 @@ hit_test :: proc(
 	point: Vec2,
 	capability := Control_Capability.Primary_Press,
 ) -> ^Control_Record {
+	best: ^Control_Record
+	best_layer := Layer.Base
 	for index := len(ui.published.controls)-1; index >= 0; index -= 1 {
 		control := &ui.published.controls[index]
-		if control.enabled && capability in control.capabilities && control_contains(control, point) {
-			return control
+		if !control.enabled || capability not_in control.capabilities ||
+		   !control_contains(control, point) {continue}
+		if best == nil || control.layer > best_layer {
+			best = control
+			best_layer = control.layer
 		}
 	}
-	return nil
+	return best
 }
 
 activate_at_point :: proc(ui: ^Context, point: Vec2) -> (Activation, bool) {
