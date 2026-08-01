@@ -3,12 +3,9 @@ package coretext
 import "core:hash"
 import "core:mem"
 import "core:strings"
+import CF "core:sys/darwin/CoreFoundation"
 import ui "ui_framework:core"
 import draw "ui_framework:draw"
-
-CF_Range :: struct {
-	location, length: int,
-}
 
 Point :: struct {
 	x, y: f64,
@@ -28,8 +25,8 @@ foreign core_foundation {
 	CFStringCreateWithCString           :: proc "c" (allocator: rawptr, text: cstring, encoding: u32) -> rawptr ---
 	CFStringGetLength                   :: proc "c" (value: rawptr) -> int ---
 	CFAttributedStringCreateMutable     :: proc "c" (allocator: rawptr, maximum_length: int) -> rawptr ---
-	CFAttributedStringReplaceString     :: proc "c" (value: rawptr, range: CF_Range, replacement: rawptr) ---
-	CFAttributedStringSetAttribute      :: proc "c" (value: rawptr, range: CF_Range, name, attribute: rawptr) ---
+	CFAttributedStringReplaceString     :: proc "c" (value: rawptr, range: CF.Range, replacement: rawptr) ---
+	CFAttributedStringSetAttribute      :: proc "c" (value: rawptr, range: CF.Range, name, attribute: rawptr) ---
 	CFArrayGetCount                     :: proc "c" (array: rawptr) -> int ---
 	CFArrayGetValueAtIndex              :: proc "c" (array: rawptr, index: int) -> rawptr ---
 	CFDictionaryGetValue                :: proc "c" (dictionary, key: rawptr) -> rawptr ---
@@ -53,9 +50,9 @@ foreign core_text {
 	CTLineGetOffsetForStringIndex        :: proc "c" (line: rawptr, index: int, secondary_offset: ^f64) -> f64 ---
 	CTLineGetStringIndexForPosition      :: proc "c" (line: rawptr, point: Point) -> int ---
 	CTRunGetGlyphCount                   :: proc "c" (run: rawptr) -> int ---
-	CTRunGetGlyphs                       :: proc "c" (run: rawptr, range: CF_Range, glyphs: [^]u16) ---
-	CTRunGetPositions                    :: proc "c" (run: rawptr, range: CF_Range, positions: [^]Point) ---
-	CTRunGetStringIndices                :: proc "c" (run: rawptr, range: CF_Range, indices: [^]int) ---
+	CTRunGetGlyphs                       :: proc "c" (run: rawptr, range: CF.Range, glyphs: [^]u16) ---
+	CTRunGetPositions                    :: proc "c" (run: rawptr, range: CF.Range, positions: [^]Point) ---
+	CTRunGetStringIndices                :: proc "c" (run: rawptr, range: CF.Range, indices: [^]int) ---
 	CTRunGetAttributes                   :: proc "c" (run: rawptr) -> rawptr ---
 	kCTFontAttributeName: rawptr
 	kCTForegroundColorFromContextAttributeName: rawptr
@@ -280,7 +277,7 @@ make_line :: proc(value: ^Context, font_handle: ui.Font_Handle, text: string, si
 	if attributed == nil {return nil}
 	defer CFRelease(attributed)
 	CFAttributedStringReplaceString(attributed, {}, string_ref)
-	range := CF_Range{0, CFStringGetLength(string_ref)}
+	range := CF.Range{0, CF.Index(CFStringGetLength(string_ref))}
 	CFAttributedStringSetAttribute(attributed, range, kCTFontAttributeName, font)
 	CFAttributedStringSetAttribute(attributed, range, kCTForegroundColorFromContextAttributeName, kCFBooleanTrue)
 	ligatures := i32(1)
