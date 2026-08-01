@@ -1,0 +1,55 @@
+package draw
+
+import "core:testing"
+
+@(test)
+submission_order_and_adjacent_batching_test :: proc(t: ^testing.T) {
+	list: List
+	list_init(&list)
+	defer list_destroy(&list)
+
+	solid(&list, {0, 0, 10, 10}, {1, 0, 0, 1}, label = "background")
+	solid(&list, {1, 1, 8, 8}, {0, 1, 0, 1}, label = "panel")
+	image(&list, Texture_Handle(4), {2, 2, 4, 4}, {0, 0, 1, 1}, label = "text")
+	solid(&list, {0, 0, 10, 10}, {0, 0, 0, 0.8}, label = "backdrop")
+	image(&list, Texture_Handle(4), {3, 3, 2, 2}, {0, 0, 1, 1}, label = "modal text")
+
+	testing.expect_value(t, len(list.batches), 4)
+	testing.expect_value(t, len(list.batches[0].instances), 2)
+	testing.expect_value(t, list.trace[0].label, "background")
+	testing.expect_value(t, list.trace[2].label, "text")
+	testing.expect_value(t, list.trace[3].label, "backdrop")
+	testing.expect_value(t, list.trace[4].label, "modal text")
+}
+
+@(test)
+clip_and_opacity_state_split_batches_without_reordering_test :: proc(t: ^testing.T) {
+	list: List
+	list_init(&list)
+	defer list_destroy(&list)
+
+	solid(&list, {0, 0, 10, 10}, {1, 1, 1, 1})
+	push_clip(&list, {2, 2, 6, 6})
+	push_opacity(&list, 0.5)
+	solid(&list, {0, 0, 10, 10}, {1, 1, 1, 1})
+	pop_opacity(&list)
+	pop_clip(&list)
+	solid(&list, {0, 0, 10, 10}, {1, 1, 1, 1})
+
+	testing.expect_value(t, len(list.batches), 3)
+	testing.expect(t, list.batches[1].key.clip_set)
+	testing.expect_value(t, list.batches[1].key.clip, Rect{2, 2, 6, 6})
+	testing.expect_value(t, list.batches[1].key.opacity, f32(0.5))
+}
+
+@(test)
+nested_clips_intersect_test :: proc(t: ^testing.T) {
+	list: List
+	list_init(&list)
+	defer list_destroy(&list)
+	push_clip(&list, {0, 0, 10, 10})
+	push_clip(&list, {5, -2, 10, 6})
+	clip, enabled := top_clip(&list)
+	testing.expect(t, enabled)
+	testing.expect_value(t, clip, Rect{5, 0, 5, 4})
+}

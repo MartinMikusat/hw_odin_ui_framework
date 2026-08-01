@@ -1,0 +1,94 @@
+package coretext
+
+import "core:testing"
+import ui "ui_framework:core"
+import draw "ui_framework:draw"
+
+test_atlas_create :: proc(_: rawptr, _: Atlas_Format, _: int, _: int) -> u64 {
+	return 1
+}
+
+test_atlas_bind :: proc(_: rawptr, _: u64) -> draw.Texture_Handle {
+	return draw.Texture_Handle(1)
+}
+
+@(test)
+coretext_measurement_and_cached_shape_share_one_line_test :: proc(t: ^testing.T) {
+	value: Context
+	context_init(&value)
+	defer context_destroy(&value)
+	register_font(&value, ui.Font_Handle(1), "Menlo-Regular")
+	begin_frame(&value, 2)
+	first := shape(&value, ui.Font_Handle(1), "office café 😀", 12, 0, 0, false)
+	second := shape(&value, ui.Font_Handle(1), "office café 😀", 12, 0, 0, false)
+	testing.expect(t, first != nil)
+	testing.expect(t, second != nil)
+	testing.expect(t, first == second)
+	testing.expect(t, first.metrics.width > 0)
+	testing.expect(t, first.metrics.ascent > 0)
+	testing.expect(t, len(first.glyphs) > 0)
+}
+
+@(test)
+truncation_and_hit_positions_use_the_shaped_coretext_line_test :: proc(t: ^testing.T) {
+	value: Context
+	context_init(&value)
+	defer context_destroy(&value)
+	register_font(&value, ui.Font_Handle(1), "Menlo-Regular")
+	begin_frame(&value, 2)
+	full := shape(&value, ui.Font_Handle(1), "a long line of text", 12, 0, 0, false)
+	short := shape(&value, ui.Font_Handle(1), "a long line of text", 12, 0, 40, true)
+	testing.expect(t, full != nil && short != nil)
+	testing.expect(t, short.metrics.width <= 40.01)
+	position := offset_for_utf16_index(full, 3, value.backing_scale)
+	testing.expect(t, position > 0)
+	testing.expect(t, utf16_index_for_offset(full, position, value.backing_scale) >= 2)
+}
+
+@(test)
+shelf_allocator_starts_new_rows_and_rejects_oversized_glyphs_test :: proc(t: ^testing.T) {
+	page := Atlas_Page{width = 16, height = 16}
+	x, y, ok := page_allocate(&page, 10, 5)
+	testing.expect(t, ok)
+	testing.expect_value(t, x, 0)
+	testing.expect_value(t, y, 0)
+	x, y, ok = page_allocate(&page, 8, 6)
+	testing.expect(t, ok)
+	testing.expect_value(t, x, 0)
+	testing.expect_value(t, y, 5)
+	_, _, ok = page_allocate(&page, 17, 1)
+	testing.expect(t, !ok)
+}
+
+@(test)
+dirty_rect_unions_independent_glyph_uploads_test :: proc(t: ^testing.T) {
+	page: Atlas_Page
+	mark_dirty(&page, {2, 3, 4, 5, true})
+	mark_dirty(&page, {8, 1, 3, 4, true})
+	testing.expect_value(t, page.dirty, Dirty_Rect{2, 1, 9, 7, true})
+}
+
+@(test)
+native_coretext_line_emits_glyph_commands_test :: proc(t: ^testing.T) {
+	value: Context
+	context_init(&value)
+	defer context_destroy(&value)
+	register_font(&value, ui.Font_Handle(1), "Menlo-Regular")
+	begin_frame(&value, 2, Atlas_IO{create = test_atlas_create, bind = test_atlas_bind})
+	run := shape(&value, ui.Font_Handle(1), "native", 12, 0, 0, false)
+	testing.expect(t, run != nil)
+	if run == nil {return}
+
+	list: draw.List
+	draw.list_init(&list)
+	defer draw.list_destroy(&list)
+	emit_native_line(&value, &list, run.line, {4, 8}, {1, 1, 1, 1}, "native")
+	instance_count := 0
+	for batch in list.batches {instance_count += len(batch.instances)}
+	testing.expect(t, instance_count > 0)
+	testing.expect(t, len(list.trace) > 0)
+	for entry in list.trace {
+		testing.expect_value(t, entry.kind, draw.Trace_Kind.Glyph)
+		testing.expect_value(t, entry.label, "native")
+	}
+}
