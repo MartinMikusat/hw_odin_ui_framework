@@ -50,6 +50,14 @@ registry_view :: proc(registry: ^Registry_Builder) -> Registry_View {
 	return {registry.actions[:], registry.controls[:], registry.frame}
 }
 
+registry_view_from_records :: proc(
+	actions: []Action_Record,
+	controls: []Control_Record,
+	frame: u64,
+) -> Registry_View {
+	return {actions, controls, frame}
+}
+
 hit_test_records :: proc(
 	controls: []Control_Record,
 	point: Vec2,
