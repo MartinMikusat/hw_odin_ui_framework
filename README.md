@@ -59,6 +59,8 @@ Layout runs standalone and upward-dependent size passes on each axis. The
 downward arrangement pass resolves percentages and remaining space, then
 partitions constraint violations by size strictness. Scroll areas retain target
 offsets, clamp them to measured content bounds, and animate the visible offset.
+Helpers scroll by a delta or reveal a prior-frame item rectangle. Virtual lists
+emit visible rows plus spacers that preserve the complete scroll extent.
 
 Scoped declarations provide layout, style, flag, and layer defaults. A next-box
 declaration applies once. Widgets and application boxes use the same keyed tree.

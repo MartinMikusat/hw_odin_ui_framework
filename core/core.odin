@@ -140,6 +140,7 @@ Box_Flag :: enum {
 Box_Flags :: bit_set[Box_Flag]
 
 Control_Capability :: enum {
+	Hover,
 	Primary_Press,
 	Secondary_Press,
 	Drag,
@@ -366,6 +367,7 @@ Persistent_State :: struct {
 	hot:             bool,
 	active:          bool,
 	focused:         bool,
+	disabled:        bool,
 	scroll:          Vec2,
 	scroll_target:   Vec2,
 	view_bounds:     Vec2,

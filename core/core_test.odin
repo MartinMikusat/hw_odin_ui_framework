@@ -376,3 +376,28 @@ focus_navigation_stays_inside_the_requested_root_test :: proc(t: ^testing.T) {
 	testing.expect(t, ok)
 	testing.expect_value(t, key, Key(1))
 }
+
+@(test)
+scroll_target_helpers_clamp_and_reveal_items_in_view_coordinates_test :: proc(
+	t: ^testing.T,
+) {
+	ctx: Context
+	context_init(&ctx)
+	defer context_destroy(&ctx)
+	key := key_from_string("scroll")
+	set_state(&ctx, key, {
+		last_rect = {0, 0, 100, 100},
+		view_bounds = {100, 500},
+		scroll = {0, 100},
+		scroll_target = {0, 100},
+	})
+	testing.expect_value(t, scroll_by(&ctx, key, {0, 500}), Vec2{0, 400})
+	state := get_state(&ctx, key)
+	state.scroll_target = {0, 100}
+	ctx.states[key] = state
+	testing.expect_value(
+		t,
+		scroll_make_visible(&ctx, key, {0, -20, 80, 20}, 10),
+		Vec2{0, 130},
+	)
+}

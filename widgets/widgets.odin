@@ -69,6 +69,7 @@ button :: proc(
 	if box.control.accessibility_role == .None {box.control.accessibility_role = .Button}
 	if card(box.control.capabilities) == 0 {
 		box.control.capabilities = {
+			.Hover,
 			.Primary_Press,
 			.Direct_Keyboard,
 			.Accessibility,

@@ -53,6 +53,27 @@ frame_hit_test :: proc(
 	return best
 }
 
+frame_hover_test :: proc(frame: ^Frame, point: Vec2) -> ^Control_Record {
+	best: ^Control_Record
+	best_layer := Layer.Base
+	for index := len(frame.controls)-1; index >= 0; index -= 1 {
+		control := &frame.controls[index]
+		interactive := .Hover in control.capabilities ||
+		               .Primary_Press in control.capabilities ||
+		               .Secondary_Press in control.capabilities ||
+		               .Drag in control.capabilities ||
+		               .Scroll in control.capabilities
+		if !control.enabled || !interactive || !control_contains(control, point) {
+			continue
+		}
+		if best == nil || control.layer > best_layer {
+			best = control
+			best_layer = control.layer
+		}
+	}
+	return best
+}
+
 signal_add :: proc(frame: ^Frame, value: Signal) {
 	for &signal in frame.signals {
 		if signal.control != value.control {continue}
@@ -119,12 +140,17 @@ click_count_flags :: proc(
 	return result
 }
 
-set_control_state :: proc(ui: ^Context, key: Key, hot, active, focused: bool) {
+set_control_state :: proc(
+	ui: ^Context,
+	key: Key,
+	hot, active, focused, disabled: bool,
+) {
 	if key == Key(0) {return}
 	state := ui.states[key]
 	state.hot = hot
 	state.active = active
 	state.focused = focused
+	state.disabled = disabled
 	state.last_seen_frame = ui.frame
 	ui.states[key] = state
 }
@@ -226,7 +252,7 @@ process_events :: proc(frame: ^Frame) {
 		}
 	}
 
-	hovered := frame_hit_test(frame, frame.input.pointer, .Primary_Press)
+	hovered := frame_hover_test(frame, frame.input.pointer)
 	ui.hot = Key(0)
 	if hovered != nil {
 		ui.hot = hovered.id
@@ -240,6 +266,13 @@ process_events :: proc(frame: ^Frame) {
 	for &control in frame.controls {
 		active := false
 		for key in ui.active {if key == control.id {active = true; break}}
-		set_control_state(ui, control.id, control.id == ui.hot, active, control.id == ui.focused)
+		set_control_state(
+			ui,
+			control.id,
+			control.id == ui.hot,
+			active,
+			control.id == ui.focused,
+			!control.enabled,
+		)
 	}
 }

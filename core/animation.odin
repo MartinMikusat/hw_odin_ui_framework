@@ -76,7 +76,7 @@ update_builtin_animations :: proc(ui: ^Context, delta_seconds: f32) {
 		state.disabled_t, _ = animate(
 			ui,
 			animation_key(key, "disabled"),
-			0,
+			state.disabled ? 1 : 0,
 			delta_seconds,
 			state.disabled_t,
 		)
