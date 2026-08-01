@@ -52,3 +52,17 @@ all_discrete_adapters_resolve_the_same_action_test :: proc(t: ^testing.T) {
 	testing.expect_value(t, len(targets), 1)
 	testing.expect_value(t, targets[0].label, "save")
 }
+
+@(test)
+numbered_sequence_tracks_prefix_and_activates_on_second_digit_test :: proc(t: ^testing.T) {
+	ctx: ui.Context
+	published_fixture(&ctx)
+	defer ui.context_destroy(&ctx)
+	state: Numbered_State
+	_, activated, handled := consume_numbered_digit(&state, &ctx, 1, 100)
+	testing.expect(t, handled && !activated)
+	activation: ui.Activation
+	activation, activated, handled = consume_numbered_digit(&state, &ctx, 2, 200)
+	testing.expect(t, handled && activated)
+	testing.expect_value(t, activation.action, ui.action_id_from_string("save"))
+}

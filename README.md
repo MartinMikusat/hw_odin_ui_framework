@@ -20,6 +20,7 @@ ordered draw buckets. It does not copy RADDBG source code.
 ## Packages
 
 - `core` builds and lays out keyed boxes. It publishes actions and controls.
+- `widgets` composes shared labels, buttons, panes, scroll areas, and virtual lists.
 - `draw` records ordered rectangles, glyphs, images, and external textures.
 - `diagnostics` captures stable control snapshots and ordered render traces.
 - `coretext` shapes text and supplies glyphs to the draw stream.
@@ -45,8 +46,27 @@ import draw "ui_framework:draw"
 4. Dispatch each activation through the application's typed action router.
 5. Encode the ordered draw stream into the application's render target.
 
+The core retains only state keyed by stable control identity. Each frame owns
+its box tree, events, signals, controls, and draw commands. `###` separates a
+stable identity suffix from display text, so localization and changing labels
+do not reset interaction state.
+
+Pointer, scroll, keyboard, text, and file-drop events enter one ordered queue.
+Controls consume matching events and emit signals. The context retains hot,
+active, focus, scroll, and animation values for the next frame.
+
+Layout runs standalone and upward-dependent size passes on each axis. The
+downward arrangement pass resolves percentages and remaining space, then
+partitions constraint violations by size strictness. Scroll areas retain target
+offsets, clamp them to measured content bounds, and animate the visible offset.
+
+Scoped declarations provide layout, style, flag, and layer defaults. A next-box
+declaration applies once. Widgets and application boxes use the same keyed tree.
+
 The draw stream preserves submission order. The renderer combines adjacent
 compatible instances only. It does not sort rectangles, text, or textures.
+Nested buckets splice complete draw streams into their parent without changing
+relative order.
 
 ## Verification
 

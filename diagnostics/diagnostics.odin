@@ -41,6 +41,124 @@ Diff :: struct {
 	changes:   [dynamic]Change,
 }
 
+Box_Record :: struct {
+	key:          ui.Key,
+	parent:       int,
+	label:        string,
+	rect:         draw.Rect,
+	clipped_rect: draw.Rect,
+	desired:      ui.Vec2,
+	overflow:     ui.Vec2,
+	layer:        ui.Layer,
+	flags:        ui.Box_Flags,
+}
+
+Frame_Report :: struct {
+	allocator:       mem.Allocator,
+	frame:           u64,
+	boxes:           [dynamic]Box_Record,
+	events:          [dynamic]ui.Event,
+	signals:         [dynamic]ui.Signal,
+	controls:        [dynamic]Control,
+	render_trace:    [dynamic]draw.Trace_Entry,
+	consumed_events: int,
+}
+
+Issue_Kind :: enum {
+	Invalid_Parent,
+	Empty_Interactive_Rect,
+	Invalid_Clip,
+	Invalid_Render_Batch,
+}
+
+Issue :: struct {
+	kind:  Issue_Kind,
+	index: int,
+	label: string,
+}
+
+frame_report_make :: proc(frame: ^ui.Frame, allocator := context.allocator) -> Frame_Report {
+	assert(frame != nil)
+	result := Frame_Report{allocator = allocator, frame = frame.ui.frame}
+	result.boxes = make([dynamic]Box_Record, 0, len(frame.boxes), allocator)
+	result.events = make([dynamic]ui.Event, 0, len(frame.events), allocator)
+	result.signals = make([dynamic]ui.Signal, 0, len(frame.signals), allocator)
+	result.controls = make([dynamic]Control, 0, len(frame.controls), allocator)
+	result.render_trace = make([dynamic]draw.Trace_Entry, 0, len(frame.draw_list.trace), allocator)
+	for box in frame.boxes {
+		append(&result.boxes, Box_Record{
+			key = box.key,
+			parent = box.parent,
+			label = strings.clone(box.debug_label, allocator),
+			rect = box.rect,
+			clipped_rect = box.clipped_rect,
+			desired = box.desired,
+			overflow = box.overflow,
+			layer = box.layer,
+			flags = box.flags,
+		})
+	}
+	for event in frame.events {
+		copy := event
+		copy.text = strings.clone(event.text, allocator)
+		append(&result.events, copy)
+		if event.consumed {result.consumed_events += 1}
+	}
+	append(&result.signals, ..frame.signals[:])
+	for control in frame.controls {
+		append(&result.controls, Control{
+			id = control.id,
+			functional_name = strings.clone(control.functional_name, allocator),
+			action = control.action,
+			rect = control.rect,
+			capabilities = control.capabilities,
+			enabled = control.enabled,
+		})
+	}
+	for trace in frame.draw_list.trace {
+		copy := trace
+		copy.label = strings.clone(trace.label, allocator)
+		append(&result.render_trace, copy)
+	}
+	return result
+}
+
+frame_report_destroy :: proc(report: ^Frame_Report) {
+	if report == nil {return}
+	for &box in report.boxes {delete(box.label, report.allocator)}
+	for &event in report.events {delete(event.text, report.allocator)}
+	for &control in report.controls {delete(control.functional_name, report.allocator)}
+	for &trace in report.render_trace {delete(trace.label, report.allocator)}
+	delete(report.boxes)
+	delete(report.events)
+	delete(report.signals)
+	delete(report.controls)
+	delete(report.render_trace)
+	report^ = {}
+}
+
+validate_frame :: proc(frame: ^ui.Frame, allocator := context.allocator) -> []Issue {
+	assert(frame != nil)
+	issues := make([dynamic]Issue, allocator)
+	for box, index in frame.boxes {
+		if index > 0 && (box.parent < 0 || box.parent >= index) {
+			append(&issues, Issue{.Invalid_Parent, index, box.debug_label})
+		}
+		if .Interactive in box.flags && draw.rect_is_empty(box.rect) {
+			append(&issues, Issue{.Empty_Interactive_Rect, index, box.debug_label})
+		}
+		if (box.style.clip || .Clip in box.flags) && draw.rect_is_empty(box.clipped_rect) {
+			append(&issues, Issue{.Invalid_Clip, index, box.debug_label})
+		}
+	}
+	for trace, index in frame.draw_list.trace {
+		if trace.batch_index >= len(frame.draw_list.batches) {
+			append(&issues, Issue{.Invalid_Render_Batch, index, trace.label})
+		}
+	}
+	return issues[:]
+}
+
 snapshot_make :: proc(
 	frame: u64,
 	controls: []ui.Control_Record,

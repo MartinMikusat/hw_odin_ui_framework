@@ -12,6 +12,74 @@ Pointer_Event_Kind :: enum {
 	Scroll,
 }
 
+Numbered_State :: struct {
+	first:       i8,
+	deadline_ms: i64,
+}
+
+queue_pointer_event :: proc(
+	ctx: ^ui.Context,
+	kind: ui.Event_Kind,
+	point: ui.Vec2,
+	button := ui.Pointer_Button.Primary,
+	delta: ui.Vec2 = {},
+	modifiers: ui.Modifiers = {},
+	timestamp_us: u64 = 0,
+) {
+	ui.queue_event(ctx, {
+		kind = kind,
+		button = button,
+		point = point,
+		delta = delta,
+		modifiers = modifiers,
+		timestamp_us = timestamp_us,
+	})
+}
+
+queue_key_event :: proc(
+	ctx: ^ui.Context,
+	kind: ui.Event_Kind,
+	key: u32,
+	modifiers: ui.Modifiers = {},
+	timestamp_us: u64 = 0,
+) {
+	ui.queue_event(ctx, {
+		kind = kind,
+		key = key,
+		modifiers = modifiers,
+		timestamp_us = timestamp_us,
+	})
+}
+
+consume_numbered_digit :: proc(
+	state: ^Numbered_State,
+	ctx: ^ui.Context,
+	digit: i8,
+	now_ms: i64,
+	timeout_ms: i64 = 1_000,
+) -> (ui.Activation, bool, bool) {
+	assert(state != nil)
+	if state.first != 0 && now_ms > state.deadline_ms {state^ = {}}
+	if state.first == 0 {
+		for &action in ctx.published.actions {
+			if action.enabled && action.number_code.digits == 2 && action.number_code.first == digit {
+				state.first = digit
+				state.deadline_ms = now_ms+timeout_ms
+				return {}, false, true
+			}
+			if action.enabled && action.number_code.digits == 1 && action.number_code.first == digit {
+				activation, activated := ui.activate_action(ctx, action.id, .Numbered)
+				return activation, activated, activated
+			}
+		}
+		return {}, false, false
+	}
+	first := state.first
+	state^ = {}
+	activation, activated := numbered_activation(ctx, first, digit, 2)
+	return activation, activated, true
+}
+
 Accessibility_Element :: struct {
 	control_id: ui.Key,
 	label:      string,

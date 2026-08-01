@@ -53,3 +53,21 @@ nested_clips_intersect_test :: proc(t: ^testing.T) {
 	testing.expect(t, enabled)
 	testing.expect_value(t, clip, Rect{5, 0, 5, 4})
 }
+
+@(test)
+nested_bucket_preserves_order_and_merges_only_adjacent_state_test :: proc(t: ^testing.T) {
+	parent, child: Bucket
+	bucket_init(&parent)
+	defer bucket_destroy(&parent)
+	bucket_init(&child)
+	defer bucket_destroy(&child)
+	solid(&parent, {0, 0, 10, 10}, {1, 0, 0, 1}, label = "before")
+	solid(&child, {1, 1, 8, 8}, {0, 1, 0, 1}, label = "child")
+	append_bucket(&parent, &child)
+	image(&parent, Texture_Handle(8), {2, 2, 4, 4}, {0, 0, 1, 1}, label = "after")
+	testing.expect_value(t, len(parent.batches), 2)
+	testing.expect_value(t, len(parent.batches[0].instances), 2)
+	testing.expect_value(t, parent.trace[0].label, "before")
+	testing.expect_value(t, parent.trace[1].label, "child")
+	testing.expect_value(t, parent.trace[2].label, "after")
+}

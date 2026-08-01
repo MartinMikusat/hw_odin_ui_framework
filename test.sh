@@ -8,6 +8,7 @@ cd "$TEMP"
 
 odin test "$ROOT/draw" -collection:ui_framework="$ROOT" -no-threaded-checker
 odin test "$ROOT/core" -collection:ui_framework="$ROOT" -no-threaded-checker
+odin test "$ROOT/widgets" -collection:ui_framework="$ROOT" -no-threaded-checker
 odin test "$ROOT/diagnostics" -collection:ui_framework="$ROOT" -no-threaded-checker
 odin test "$ROOT/coretext" -collection:ui_framework="$ROOT" \
   -no-threaded-checker \

@@ -56,6 +56,8 @@ Trace_Kind :: enum {
 	Image,
 	Glyph,
 	Icon,
+	Group_Begin,
+	Group_End,
 }
 
 Trace_Entry :: struct {
@@ -75,6 +77,8 @@ List :: struct {
 	opacity_stack:     [dynamic]f32,
 	clip_enabled_stack: [dynamic]bool,
 }
+
+Bucket :: List
 
 rect_right :: proc(rect: Rect) -> f32 {
 	return rect.x + rect.w
@@ -136,6 +140,49 @@ list_destroy :: proc(list: ^List) {
 	delete(list.opacity_stack)
 	delete(list.clip_enabled_stack)
 	list^ = {}
+}
+
+bucket_init :: proc(bucket: ^Bucket, allocator := context.allocator) {
+	list_init(bucket, allocator)
+}
+
+bucket_reset :: proc(bucket: ^Bucket) {list_reset(bucket)}
+
+bucket_destroy :: proc(bucket: ^Bucket) {list_destroy(bucket)}
+
+begin_group :: proc(list: ^List, label: string) {
+	append(&list.trace, Trace_Entry{kind = .Group_Begin, label = label, batch_index = -1})
+}
+
+end_group :: proc(list: ^List, label: string = "") {
+	append(&list.trace, Trace_Entry{kind = .Group_End, label = label, batch_index = -1})
+}
+
+append_bucket :: proc(list: ^List, bucket: ^Bucket) {
+	assert(list != nil && bucket != nil)
+	batch_map := make([]int, len(bucket.batches), context.temp_allocator)
+	defer delete(batch_map, context.temp_allocator)
+	for source, source_index in bucket.batches {
+		destination_index := len(list.batches)-1
+		if destination_index < 0 || list.batches[destination_index].key != source.key {
+			copy := Batch{key = source.key}
+			copy.instances = make(
+				[dynamic]Quad_Instance,
+				0,
+				max(64, len(source.instances)),
+				list.allocator,
+			)
+			append(&list.batches, copy)
+			destination_index += 1
+		}
+		append(&list.batches[destination_index].instances, ..source.instances[:])
+		batch_map[source_index] = destination_index
+	}
+	for source in bucket.trace {
+		copy := source
+		if source.batch_index >= 0 {copy.batch_index = batch_map[source.batch_index]}
+		append(&list.trace, copy)
+	}
 }
 
 top_clip :: proc(list: ^List) -> (Rect, bool) {

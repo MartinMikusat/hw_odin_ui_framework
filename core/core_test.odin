@@ -133,3 +133,131 @@ duplicate_box_and_action_identifiers_are_detected_by_contract_test :: proc(t: ^t
 	testing.expect(t, key_from_string("same") == key_from_string("same"))
 	testing.expect(t, action_id_from_string("same") == action_id_from_string("same"))
 }
+
+@(test)
+label_identity_separates_display_text_from_stable_keys_test :: proc(t: ^testing.T) {
+	parent := key_from_string("parent")
+	testing.expect_value(t, display_part("Save##shortcut"), "Save")
+	testing.expect_value(
+		t,
+		key_from_label(parent, "Save###stable"),
+		key_from_label(parent, "Guardar###stable"),
+	)
+	testing.expect(t, key_from_label(parent, "Save##one") != key_from_label(parent, "Save##two"))
+}
+
+@(test)
+layout_strictness_partitions_constraint_violation_test :: proc(t: ^testing.T) {
+	ctx: Context
+	context_init(&ctx)
+	defer context_destroy(&ctx)
+	frame := begin_frame(&ctx, {viewport = {0, 0, 100, 40}})
+	defer frame_destroy(&frame)
+	_ = box_begin(&frame, Box{
+		key = key_from_string("row constraint"),
+		layout = {
+			width = percent(1),
+			height = points(40),
+			flow = .Row,
+		},
+	})
+	strict := box_add(&frame, Box{
+		key = key_from_string("strict"),
+		layout = {width = points(80), height = points(40)},
+	})
+	flexible := box_add(&frame, Box{
+		key = key_from_string("flexible"),
+		layout = {width = flex_points(80, 0), height = points(40)},
+	})
+	box_end(&frame)
+	_ = end_frame(&frame)
+	testing.expect_value(t, frame.boxes[strict].rect.w, f32(80))
+	testing.expect_value(t, frame.boxes[flexible].rect.w, f32(20))
+}
+
+build_click_fixture :: proc(ctx: ^Context, pointer: Vec2) -> (Frame, Key) {
+	frame := begin_frame(ctx, {viewport = {0, 0, 100, 100}, pointer = pointer})
+	action := action_id_from_string("activate")
+	register_action(&frame, {
+		id = action,
+		functional_name = "activate",
+		label = "Activate",
+		enabled = true,
+	})
+	key := key_from_string("control")
+	_ = box_add(&frame, Box{
+		key = key,
+		layout = {position = .Absolute, absolute = {10, 10, 40, 20}},
+		flags = {.Interactive, .Click_To_Focus},
+		control = {
+			functional_name = "activate",
+			action = action,
+			capabilities = {.Primary_Press, .Direct_Keyboard},
+		},
+	})
+	return frame, key
+}
+
+@(test)
+event_queue_retains_active_state_and_emits_click_on_release_test :: proc(t: ^testing.T) {
+	ctx: Context
+	context_init(&ctx)
+	defer context_destroy(&ctx)
+	frame, key := build_click_fixture(&ctx, {20, 15})
+	output := end_frame(&frame)
+	publish(&ctx, output)
+	frame_destroy(&frame)
+	queue_event(&ctx, {
+		kind = .Pointer_Press,
+		button = .Primary,
+		point = {20, 15},
+		timestamp_us = 1_000,
+	})
+	press_frame, _ := build_click_fixture(&ctx, {20, 15})
+	press := signal_for_key(press_frame.signals[:], key)
+	testing.expect(t, .Pressed in press.flags)
+	_ = end_frame(&press_frame)
+	frame_destroy(&press_frame)
+	queue_event(&ctx, {
+		kind = .Pointer_Release,
+		button = .Primary,
+		point = {20, 15},
+		timestamp_us = 2_000,
+	})
+	release_frame, _ := build_click_fixture(&ctx, {20, 15})
+	release := signal_for_key(release_frame.signals[:], key)
+	testing.expect(t, .Released in release.flags)
+	testing.expect(t, .Clicked in release.flags)
+	testing.expect_value(t, ctx.focused, key)
+	_ = end_frame(&release_frame)
+	frame_destroy(&release_frame)
+}
+
+@(test)
+focus_navigation_stays_inside_the_requested_root_test :: proc(t: ^testing.T) {
+	ctx: Context
+	context_init(&ctx)
+	defer context_destroy(&ctx)
+	registry := registry_begin(1)
+	defer registry_destroy(&registry)
+	for index in 0..<3 {
+		registry_add_control(&registry, {
+			id = Key(index+1),
+			functional_name = "control",
+			rect = {f32(index*20), 0, 10, 10},
+			focusable = true,
+			focus_root = Key(index/2+10),
+			enabled = true,
+		})
+	}
+	registry_publish(&ctx, &registry)
+	key, ok := focus_move(&ctx, .Next, Key(10))
+	testing.expect(t, ok)
+	testing.expect_value(t, key, Key(1))
+	key, ok = focus_move(&ctx, .Next, Key(10))
+	testing.expect(t, ok)
+	testing.expect_value(t, key, Key(2))
+	key, ok = focus_move(&ctx, .Next, Key(10))
+	testing.expect(t, ok)
+	testing.expect_value(t, key, Key(1))
+}
