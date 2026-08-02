@@ -1,7 +1,7 @@
 package metal
 
 import "core:mem"
-import "core:os"
+import "core:dynlib"
 import "core:strings"
 import coretext "ui_framework:coretext"
 import draw "ui_framework:draw"
@@ -80,10 +80,10 @@ send_address: rawptr
 
 load_objc :: proc() -> bool {
 	if send_address != nil {return true}
-	handle := os.dlopen("/usr/lib/libobjc.A.dylib", os.RTLD_NOW)
-	if handle == nil {return false}
-	send_address = os.dlsym(handle, "objc_msgSend")
-	return send_address != nil
+	handle, loaded := dynlib.load_library("/usr/lib/libobjc.A.dylib")
+	if !loaded {return false}
+	send_address, loaded = dynlib.symbol_address(handle, "objc_msgSend")
+	return loaded
 }
 
 msg_id :: proc(receiver: Object, selector: Selector) -> Object {
