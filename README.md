@@ -27,6 +27,11 @@ ordered draw buckets. It does not copy RADDBG source code.
 - `metal` encodes the draw stream into a caller-owned Metal command buffer.
 - `macos` adapts AppKit pointer and Accessibility events to published controls.
 
+`macos.Frame_Timer` owns the main-run-loop frame clock. It registers one timer
+in `NSDefaultRunLoopMode` and `NSEventTrackingRunLoopMode`, so rendering
+continues during live window resizing. The application owns the callback and
+must stop the timer before it releases the callback target.
+
 Applications add this repository as an Odin collection:
 
 ```sh

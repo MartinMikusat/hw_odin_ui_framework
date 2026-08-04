@@ -16,4 +16,8 @@ odin test "$ROOT/coretext" -collection:ui_framework="$ROOT" \
 odin test "$ROOT/metal" -collection:ui_framework="$ROOT" \
   -no-threaded-checker \
   -extra-linker-flags:"-framework Foundation -framework Metal -framework CoreFoundation -framework CoreText -framework CoreGraphics"
-odin test "$ROOT/macos" -collection:ui_framework="$ROOT" -no-threaded-checker
+odin test "$ROOT/macos" -collection:ui_framework="$ROOT" \
+  -no-threaded-checker \
+  -extra-linker-flags:"-framework AppKit -framework Foundation"
+odin run "$ROOT/tests/frame_timer" -collection:ui_framework="$ROOT" \
+  -extra-linker-flags:"-framework AppKit -framework Foundation"
