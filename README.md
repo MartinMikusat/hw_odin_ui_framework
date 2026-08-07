@@ -84,6 +84,16 @@ relative order. Parent transforms, clips, and opacity compose into each nested
 bucket before Metal encodes its instances. Clip rectangles are projected into
 render-target coordinates before the renderer converts them to Metal scissors.
 
+Ordinary applications rebuild draw lists every requested frame, matching the
+RADDBG immediate-UI model. Media hot loops may retain chrome `draw.Bucket`
+values across ticks when panels and labels are unchanged. Those buckets may
+outlive `begin_texture_frame` only if the application snapshots Metal texture
+natives with `snapshot_texture_natives` after the chrome rebuild and calls
+`rebind_texture_natives` before compose or encode on a warm tick. This is a
+Hal Wayland hot-loop extension, not RADDBG draw-list retention. Workspace
+contracts live in
+[`notes/native-render-lifetime-contracts.md`](../notes/native-render-lifetime-contracts.md).
+
 CoreText returns an opaque prepared-run handle. The box stores that handle and
 uses its metrics for alignment. Glyph emission consumes the same handle, so the
 measurement and draw paths cannot shape different text.

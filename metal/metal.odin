@@ -351,8 +351,13 @@ register_texture :: proc(renderer: ^Renderer, texture: Object) -> draw.Texture_H
 	return draw.Texture_Handle(len(renderer.textures))
 }
 
-// Snapshot retained Metal texture natives so callers can rebuild matching handles
-// after begin_texture_frame without regenerating glyph atlas pages.
+/**
+ * Snapshot retained Metal texture natives for hot-loop chrome retention.
+ * Call after building a draw bucket that must outlive the next
+ * begin_texture_frame. Pair with rebind_texture_natives before encode so
+ * Texture_Handle indices in the retained bucket match the renderer again
+ * without regenerating glyph atlas pages.
+ */
 snapshot_texture_natives :: proc(
 	renderer: ^Renderer,
 	destination: ^[dynamic]u64,
@@ -365,7 +370,12 @@ snapshot_texture_natives :: proc(
 	}
 }
 
-// Recreate handle indices 1..N from previously snapshotted natives.
+/**
+ * Recreate handle indices 1..N from previously snapshotted natives.
+ * Retained chrome buckets may outlive begin_texture_frame only when callers
+ * snapshot after the chrome rebuild and rebind before composing or encoding
+ * the ordered stream on a warm tick.
+ */
 rebind_texture_natives :: proc(renderer: ^Renderer, natives: []u64) {
 	if renderer == nil {return}
 	begin_texture_frame(renderer)
