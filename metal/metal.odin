@@ -351,6 +351,30 @@ register_texture :: proc(renderer: ^Renderer, texture: Object) -> draw.Texture_H
 	return draw.Texture_Handle(len(renderer.textures))
 }
 
+// Snapshot retained Metal texture natives so callers can rebuild matching handles
+// after begin_texture_frame without regenerating glyph atlas pages.
+snapshot_texture_natives :: proc(
+	renderer: ^Renderer,
+	destination: ^[dynamic]u64,
+) {
+	if destination == nil {return}
+	clear(destination)
+	if renderer == nil {return}
+	for texture in renderer.textures {
+		append(destination, u64(uintptr(texture)))
+	}
+}
+
+// Recreate handle indices 1..N from previously snapshotted natives.
+rebind_texture_natives :: proc(renderer: ^Renderer, natives: []u64) {
+	if renderer == nil {return}
+	begin_texture_frame(renderer)
+	for native in natives {
+		if native == 0 {continue}
+		_ = register_texture(renderer, Object(rawptr(uintptr(native))))
+	}
+}
+
 atlas_create :: proc(data: rawptr, format: coretext.Atlas_Format, width, height: int) -> u64 {
 	renderer := (^Renderer)(data)
 	if renderer == nil || renderer.device == nil || width <= 0 || height <= 0 {return 0}
