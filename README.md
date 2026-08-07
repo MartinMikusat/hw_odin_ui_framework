@@ -9,6 +9,7 @@ stream for a Metal backend.
 Models used:
 
 - **gpt-5.6-sol**
+- **Cursor Grok 4.5**
 
 The framework keeps application actions and durable product state in the
 application. It owns frame layout, transient interaction state, drawing order,
@@ -22,7 +23,8 @@ ordered draw buckets. It does not copy RADDBG source code.
 - `core` builds and lays out keyed boxes. It publishes actions and controls.
 - `widgets` composes shared labels, buttons, panes, scroll areas, and virtual lists.
 - `draw` records ordered rectangles, glyphs, images, and external textures.
-- `diagnostics` captures stable control snapshots and ordered render traces.
+- `diagnostics` captures stable control snapshots, ordered render traces, and
+  fixed-capacity CPU/GPU performance histories without allocating per frame.
 - `coretext` shapes text and supplies glyphs to the draw stream.
 - `metal` encodes the draw stream into a caller-owned Metal command buffer.
 - `macos` adapts AppKit pointer and Accessibility events to published controls.
