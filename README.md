@@ -22,6 +22,9 @@ ordered draw buckets. It does not copy RADDBG source code.
 
 - `core` builds and lays out keyed boxes. It publishes actions and controls.
 - `widgets` composes shared labels, buttons, panes, scroll areas, and virtual lists.
+- `hal_wayland` defines the canonical Hal Wayland light/dark palette, semantic
+  accents, typography, application chrome geometry, responsive action-bar
+  layout, and square control styles.
 - `draw` records ordered rectangles, glyphs, images, and external textures.
 - `diagnostics` captures stable control snapshots, ordered render traces, and
   fixed-capacity CPU/GPU performance histories without allocating per frame.
