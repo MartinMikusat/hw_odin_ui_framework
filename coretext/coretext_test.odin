@@ -1,5 +1,6 @@
 package coretext
 
+import "core:strings"
 import "core:testing"
 import ui "ui_framework:core"
 import draw "ui_framework:draw"
@@ -76,6 +77,36 @@ truncation_and_hit_positions_use_the_shaped_coretext_line_test :: proc(t: ^testi
 	position := offset_for_utf16_index(full, 3, value.backing_scale)
 	testing.expect(t, position > 0)
 	testing.expect(t, utf16_index_for_offset(full, position, value.backing_scale) >= 2)
+}
+
+@(test)
+wrapped_line_ranges_preserve_unicode_newlines_and_narrow_clusters_test :: proc(t: ^testing.T) {
+	value: Context
+	context_init(&value)
+	defer context_destroy(&value)
+	register_font(&value, ui.Font_Handle(1), "Menlo-Regular")
+	begin_frame(&value, 2)
+	text := "alpha beta\n\ncafé 😀 gamma\n"
+	lines := wrap_line_ranges(&value, ui.Font_Handle(1), text, 12, 0, 70)
+	defer delete(lines)
+	testing.expect(t, len(lines) >= 5)
+	testing.expect_value(t, text[lines[0].byte_start:lines[0].byte_end], "alpha ")
+	found_blank, found_unicode := false, false
+	previous_next := 0
+	for line in lines {
+		testing.expect_value(t, line.byte_start, previous_next)
+		testing.expect(t, line.byte_start <= line.byte_end && line.byte_end <= line.next_byte)
+		if line.byte_start == line.byte_end {found_blank = true}
+		if line.byte_end > line.byte_start && strings.contains(text[line.byte_start:line.byte_end], "😀") {found_unicode = true}
+		previous_next = line.next_byte
+	}
+	testing.expect(t, found_blank)
+	testing.expect(t, found_unicode)
+	testing.expect_value(t, previous_next, len(text))
+	narrow := wrap_line_ranges(&value, ui.Font_Handle(1), "😀😀", 12, 0, 1)
+	defer delete(narrow)
+	testing.expect_value(t, len(narrow), 2)
+	testing.expect_value(t, narrow[0].byte_end, len("😀"))
 }
 
 @(test)

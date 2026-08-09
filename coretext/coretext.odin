@@ -45,6 +45,9 @@ foreign core_text {
 	CTFontDrawGlyphs                     :: proc "c" (font: rawptr, glyphs: [^]u16, positions: [^]Point, count: int, ctx: rawptr) ---
 	CTLineCreateWithAttributedString     :: proc "c" (value: rawptr) -> rawptr ---
 	CTLineCreateTruncatedLine            :: proc "c" (line: rawptr, width: f64, truncation_type: u32, token: rawptr) -> rawptr ---
+	CTTypesetterCreateWithAttributedString :: proc "c" (value: rawptr) -> rawptr ---
+	CTTypesetterSuggestLineBreak         :: proc "c" (typesetter: rawptr, start: CF.Index, width: f64) -> CF.Index ---
+	CTTypesetterSuggestClusterBreak      :: proc "c" (typesetter: rawptr, start: CF.Index, width: f64) -> CF.Index ---
 	CTLineGetTypographicBounds           :: proc "c" (line: rawptr, ascent, descent, leading: ^f64) -> f64 ---
 	CTLineGetGlyphRuns                   :: proc "c" (line: rawptr) -> rawptr ---
 	CTLineGetOffsetForStringIndex        :: proc "c" (line: rawptr, index: int, secondary_offset: ^f64) -> f64 ---
@@ -156,6 +159,10 @@ Shaped_Run :: struct {
 	metrics:   ui.Text_Metrics,
 }
 
+Wrapped_Line_Range :: struct {
+	byte_start, byte_end, next_byte: int,
+}
+
 Font_Entry :: struct {
 	handle: ui.Font_Handle,
 	name:   string,
@@ -261,7 +268,7 @@ cfstring :: proc(value: string) -> rawptr {
 	return CFStringCreateWithCString(nil, text, UTF8_ENCODING)
 }
 
-make_line :: proc(value: ^Context, font_handle: ui.Font_Handle, text: string, size, tracking: f32) -> rawptr {
+make_attributed_string :: proc(value: ^Context, font_handle: ui.Font_Handle, text: string, size, tracking: f32) -> rawptr {
 	name := font_name(value, font_handle)
 	if len(name) == 0 || len(text) == 0 {return nil}
 	name_ref := cfstring(name)
@@ -275,7 +282,6 @@ make_line :: proc(value: ^Context, font_handle: ui.Font_Handle, text: string, si
 	defer CFRelease(string_ref)
 	attributed := CFAttributedStringCreateMutable(nil, 0)
 	if attributed == nil {return nil}
-	defer CFRelease(attributed)
 	CFAttributedStringReplaceString(attributed, {}, string_ref)
 	range := CF.Range{0, CF.Index(CFStringGetLength(string_ref))}
 	CFAttributedStringSetAttribute(attributed, range, kCTFontAttributeName, font)
@@ -294,7 +300,70 @@ make_line :: proc(value: ^Context, font_handle: ui.Font_Handle, text: string, si
 			CFRelease(tracking_number)
 		}
 	}
+	return attributed
+}
+
+make_line :: proc(value: ^Context, font_handle: ui.Font_Handle, text: string, size, tracking: f32) -> rawptr {
+	attributed := make_attributed_string(value, font_handle, text, size, tracking)
+	if attributed == nil {return nil}
+	defer CFRelease(attributed)
 	return CTLineCreateWithAttributedString(attributed)
+}
+
+byte_offset_for_utf16_index :: proc(text: string, target_index: int) -> int {
+	byte_index, utf16_index := 0, 0
+	for byte_index < len(text) && utf16_index < max(0, target_index) {
+		first := text[byte_index]
+		byte_count, utf16_count := 1, 1
+		if first&0xf8 == 0xf0 {byte_count, utf16_count = 4, 2}
+		else if first&0xf0 == 0xe0 {byte_count = 3}
+		else if first&0xe0 == 0xc0 {byte_count = 2}
+		if utf16_index+utf16_count > target_index {break}
+		byte_index += byte_count
+		utf16_index += utf16_count
+	}
+	return min(byte_index, len(text))
+}
+
+wrap_line_ranges :: proc(
+	value: ^Context,
+	font: ui.Font_Handle,
+	text: string,
+	size, tracking, maximum_width: f32,
+	allocator := context.allocator,
+) -> [dynamic]Wrapped_Line_Range {
+	result := make([dynamic]Wrapped_Line_Range, allocator)
+	if value == nil || len(text) == 0 || maximum_width <= 0 {return result}
+	attributed := make_attributed_string(value, font, text, size, tracking)
+	if attributed == nil {return result}
+	defer CFRelease(attributed)
+	typesetter := CTTypesetterCreateWithAttributedString(attributed)
+	if typesetter == nil {return result}
+	defer CFRelease(typesetter)
+	text_ref := cfstring(text)
+	if text_ref == nil {return result}
+	defer CFRelease(text_ref)
+	utf16_length := CFStringGetLength(text_ref)
+	utf16_start := 0
+	for utf16_start < utf16_length {
+		count := int(CTTypesetterSuggestLineBreak(typesetter, CF.Index(utf16_start), f64(maximum_width*value.backing_scale)))
+		if count <= 0 {
+			count = int(CTTypesetterSuggestClusterBreak(typesetter, CF.Index(utf16_start), f64(maximum_width*value.backing_scale)))
+		}
+		if count <= 0 {count = 1}
+		utf16_next := min(utf16_length, utf16_start+count)
+		byte_start := byte_offset_for_utf16_index(text, utf16_start)
+		next_byte := byte_offset_for_utf16_index(text, utf16_next)
+		byte_end := next_byte
+		if byte_end > byte_start && text[byte_end-1] == '\n' {byte_end -= 1}
+		if byte_end > byte_start && text[byte_end-1] == '\r' {byte_end -= 1}
+		append(&result, Wrapped_Line_Range{byte_start, byte_end, next_byte})
+		utf16_start = utf16_next
+	}
+	if len(text) > 0 && (text[len(text)-1] == '\n' || text[len(text)-1] == '\r') {
+		append(&result, Wrapped_Line_Range{len(text), len(text), len(text)})
+	}
+	return result
 }
 
 fill_shaped_glyphs :: proc(value: ^Context, shaped: ^Shaped_Run) {
