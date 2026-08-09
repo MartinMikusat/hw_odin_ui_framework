@@ -66,3 +66,80 @@ numbered_sequence_tracks_prefix_and_activates_on_second_digit_test :: proc(t: ^t
 	testing.expect(t, handled && activated)
 	testing.expect_value(t, activation.action, ui.action_id_from_string("save"))
 }
+
+@(test)
+input_root_scopes_functional_and_numbered_adapters_test :: proc(t: ^testing.T) {
+	ctx: ui.Context
+	ui.context_init(&ctx)
+	defer ui.context_destroy(&ctx)
+	frame := ui.begin_frame(&ctx, {viewport = {0, 0, 100, 100}})
+	defer ui.frame_destroy(&frame)
+	background_action := ui.action_id_from_string("background")
+	modal_action := ui.action_id_from_string("modal")
+	window_action := ui.action_id_from_string("window")
+	ui.register_action(&frame, {
+		id = background_action,
+		functional_name = "background",
+		enabled = true,
+		number_code = {1, 1, 2},
+	})
+	ui.register_action(&frame, {
+		id = modal_action,
+		functional_name = "modal",
+		enabled = true,
+		number_code = {1, 2, 2},
+	})
+	ui.register_action(&frame, {
+		id = window_action,
+		functional_name = "window",
+		enabled = true,
+		number_code = {1, 3, 2},
+	})
+	_ = ui.box_add(&frame, ui.Box{
+		key = ui.key_from_string("background control"),
+		layout = {position = .Absolute, absolute = {0, 0, 20, 20}},
+		flags = {.Interactive},
+		control = {
+			functional_name = "background",
+			action = background_action,
+			capabilities = {.Numbered, .CLI},
+		},
+	})
+	_ = ui.box_add(&frame, ui.Box{
+		key = ui.key_from_string("window control"),
+		layout = {position = .Absolute, absolute = {80, 80, 20, 20}},
+		flags = {.Interactive, .Input_Passthrough},
+		control = {
+			functional_name = "window",
+			action = window_action,
+			capabilities = {.Numbered, .CLI},
+		},
+	})
+	_ = ui.box_begin(&frame, ui.Box{
+		key = ui.key_from_string("modal root"),
+		layout = {position = .Absolute, absolute = {20, 20, 60, 60}, flow = .Overlay},
+		flags = {.Input_Root},
+	})
+	_ = ui.box_add(&frame, ui.Box{
+		key = ui.key_from_string("modal control"),
+		layout = {position = .Absolute, absolute = {0, 0, 20, 20}},
+		flags = {.Interactive},
+		control = {
+			functional_name = "modal",
+			action = modal_action,
+			capabilities = {.Numbered, .CLI},
+		},
+	})
+	ui.box_end(&frame)
+	ui.publish(&ctx, ui.end_frame(&frame))
+
+	_, background_functional_ok := functional_activation(&ctx, "background")
+	_, background_numbered_ok := numbered_activation(&ctx, 1, 1, 2)
+	_, modal_functional_ok := functional_activation(&ctx, "modal")
+	_, modal_numbered_ok := numbered_activation(&ctx, 1, 2, 2)
+	_, window_functional_ok := functional_activation(&ctx, "window")
+	_, window_numbered_ok := numbered_activation(&ctx, 1, 3, 2)
+	testing.expect(t, !background_functional_ok && !background_numbered_ok)
+	testing.expect(t, modal_functional_ok && modal_numbered_ok)
+	testing.expect(t, window_functional_ok && window_numbered_ok)
+}

@@ -120,6 +120,33 @@ emit_layers :: proc(frame: ^Frame) {
 	}
 }
 
+action_has_interactive_box :: proc(frame: ^Frame, id: Action_ID) -> bool {
+	for &box in frame.boxes {
+		if .Interactive in box.flags && box.control.action == id {return true}
+	}
+	return false
+}
+
+action_has_published_control :: proc(frame: ^Frame, id: Action_ID) -> bool {
+	for &control in frame.controls {
+		if control.action == id {return true}
+	}
+	return false
+}
+
+scope_actions_to_published_controls :: proc(frame: ^Frame) {
+	write_index := 0
+	for action in frame.actions {
+		if action_has_interactive_box(frame, action.id) &&
+		   !action_has_published_control(frame, action.id) {
+			continue
+		}
+		frame.actions[write_index] = action
+		write_index += 1
+	}
+	resize(&frame.actions, write_index)
+}
+
 purge_old_state :: proc(ui: ^Context, allocator: mem.Allocator) {
 	cutoff := u64(0)
 	if ui.frame > 120 {cutoff = ui.frame-120}
@@ -141,6 +168,7 @@ end_frame :: proc(frame: ^Frame) -> Frame_Output {
 	prepare_final_text_runs(frame)
 	emit_layers(frame)
 	process_events(frame)
+	scope_actions_to_published_controls(frame)
 	update_builtin_animations(
 		frame.ui,
 		frame.input.delta_seconds,
@@ -156,4 +184,3 @@ end_frame :: proc(frame: ^Frame) -> Frame_Output {
 		frame = frame.ui.frame,
 	}
 }
-

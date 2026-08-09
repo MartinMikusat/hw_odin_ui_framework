@@ -145,19 +145,25 @@ input_root_blocks_background_controls_and_allows_explicit_passthrough_test :: pr
 	defer context_destroy(&ctx)
 	frame := begin_frame(&ctx, {viewport = {0, 0, 100, 100}})
 	defer frame_destroy(&frame)
-	action := action_id_from_string("action")
-	register_action(&frame, {id = action, enabled = true})
+	background_action := action_id_from_string("background action")
+	window_action := action_id_from_string("window action")
+	popup_action := action_id_from_string("popup action")
+	command_action := action_id_from_string("command action")
+	register_action(&frame, {id = background_action, functional_name = "background action", enabled = true})
+	register_action(&frame, {id = window_action, functional_name = "window action", enabled = true})
+	register_action(&frame, {id = popup_action, functional_name = "popup action", enabled = true})
+	register_action(&frame, {id = command_action, functional_name = "command action", enabled = true})
 	_ = box_add(&frame, Box{
 		key = key_from_string("background control"),
 		layout = {position = .Absolute, absolute = {0, 0, 20, 20}},
 		flags = {.Interactive},
-		control = {action = action, capabilities = {.Primary_Press}},
+		control = {action = background_action, capabilities = {.Primary_Press}},
 	})
 	_ = box_add(&frame, Box{
 		key = key_from_string("window control"),
 		layout = {position = .Absolute, absolute = {80, 80, 20, 20}},
 		flags = {.Interactive, .Input_Passthrough},
-		control = {action = action, capabilities = {.Primary_Press}},
+		control = {action = window_action, capabilities = {.Primary_Press}},
 	})
 	_ = box_begin(&frame, Box{
 		key = key_from_string("popup root"),
@@ -173,14 +179,18 @@ input_root_blocks_background_controls_and_allows_explicit_passthrough_test :: pr
 		key = key_from_string("popup control"),
 		layout = {position = .Absolute, absolute = {0, 0, 20, 20}},
 		flags = {.Interactive},
-		control = {action = action, capabilities = {.Primary_Press}},
+		control = {action = popup_action, capabilities = {.Primary_Press}},
 	})
 	box_end(&frame)
 	output := end_frame(&frame)
 	testing.expect_value(t, len(output.controls), 2)
-	testing.expect_value(t, output.controls[0].functional_name, "")
 	testing.expect_value(t, output.controls[0].id, key_from_string("window control"))
 	testing.expect_value(t, output.controls[1].id, key_from_string("popup control"))
+	testing.expect_value(t, len(output.actions), 3)
+	testing.expect(t, find_action(output.actions, background_action) == nil)
+	testing.expect(t, find_action(output.actions, window_action) != nil)
+	testing.expect(t, find_action(output.actions, popup_action) != nil)
+	testing.expect(t, find_action(output.actions, command_action) != nil)
 }
 
 @(test)

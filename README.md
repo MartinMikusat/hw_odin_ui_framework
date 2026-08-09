@@ -77,8 +77,11 @@ Scoped declarations provide layout, style, flag, and layer defaults. A next-box
 declaration applies once. Widgets and application boxes use the same keyed tree.
 
 Base, popup, tooltip, modal, and debug layers render in a fixed order. An input
-root restricts pointer publication to one subtree. Explicit pass-through controls
-can keep window operations available while a modal owns application input.
+root restricts control and associated action publication to one subtree, so
+pointer, numbered, accessibility, flash, command-menu, and CLI adapters resolve
+the same active surface. Command-only actions remain published. Explicit
+pass-through controls can keep window operations available while a modal owns
+application input.
 
 The draw stream preserves submission order. The renderer combines adjacent
 compatible instances only. It does not sort rectangles, text, or textures.
