@@ -54,6 +54,23 @@ all_discrete_adapters_resolve_the_same_action_test :: proc(t: ^testing.T) {
 }
 
 @(test)
+accessibility_link_role_maps_to_ax_link_test :: proc(t: ^testing.T) {
+	controls := []ui.Control_Record{{
+		id = ui.Key(1),
+		accessibility_label = "Open source",
+		accessibility_role = .Link,
+		capabilities = {.Accessibility},
+		enabled = true,
+	}}
+	elements := accessibility_elements_from_view(
+		ui.registry_view_from_records(nil, controls, 1),
+	)
+	defer accessibility_elements_destroy(elements)
+	testing.expect_value(t, len(elements), 1)
+	testing.expect_value(t, elements[0].role, "AXLink")
+}
+
+@(test)
 numbered_sequence_tracks_prefix_and_activates_on_second_digit_test :: proc(t: ^testing.T) {
 	ctx: ui.Context
 	published_fixture(&ctx)

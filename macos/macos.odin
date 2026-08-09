@@ -126,6 +126,7 @@ role_name :: proc(role: ui.Accessibility_Role) -> string {
 	case .List: return "AXList"
 	case .List_Item: return "AXRow"
 	case .Group: return "AXGroup"
+	case .Link: return "AXLink"
 	case .None: return "AXUnknown"
 	}
 	return "AXUnknown"

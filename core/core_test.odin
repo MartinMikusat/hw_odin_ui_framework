@@ -149,15 +149,23 @@ input_root_blocks_background_controls_and_allows_explicit_passthrough_test :: pr
 	window_action := action_id_from_string("window action")
 	popup_action := action_id_from_string("popup action")
 	command_action := action_id_from_string("command action")
+	shared_action := action_id_from_string("shared action")
 	register_action(&frame, {id = background_action, functional_name = "background action", enabled = true})
 	register_action(&frame, {id = window_action, functional_name = "window action", enabled = true})
 	register_action(&frame, {id = popup_action, functional_name = "popup action", enabled = true})
 	register_action(&frame, {id = command_action, functional_name = "command action", enabled = true})
+	register_action(&frame, {id = shared_action, functional_name = "shared action", enabled = true})
 	_ = box_add(&frame, Box{
 		key = key_from_string("background control"),
 		layout = {position = .Absolute, absolute = {0, 0, 20, 20}},
 		flags = {.Interactive},
 		control = {action = background_action, capabilities = {.Primary_Press}},
+	})
+	_ = box_add(&frame, Box{
+		key = key_from_string("background shared control"),
+		layout = {position = .Absolute, absolute = {20, 0, 20, 20}},
+		flags = {.Interactive},
+		control = {action = shared_action, capabilities = {.Primary_Press}},
 	})
 	_ = box_add(&frame, Box{
 		key = key_from_string("window control"),
@@ -181,16 +189,52 @@ input_root_blocks_background_controls_and_allows_explicit_passthrough_test :: pr
 		flags = {.Interactive},
 		control = {action = popup_action, capabilities = {.Primary_Press}},
 	})
+	_ = box_add(&frame, Box{
+		key = key_from_string("popup shared control"),
+		layout = {position = .Absolute, absolute = {20, 0, 20, 20}},
+		flags = {.Interactive},
+		control = {action = shared_action, capabilities = {.Primary_Press}},
+	})
 	box_end(&frame)
 	output := end_frame(&frame)
-	testing.expect_value(t, len(output.controls), 2)
+	testing.expect_value(t, len(output.controls), 3)
 	testing.expect_value(t, output.controls[0].id, key_from_string("window control"))
 	testing.expect_value(t, output.controls[1].id, key_from_string("popup control"))
-	testing.expect_value(t, len(output.actions), 3)
+	testing.expect_value(t, output.controls[2].id, key_from_string("popup shared control"))
+	testing.expect_value(t, len(output.actions), 4)
 	testing.expect(t, find_action(output.actions, background_action) == nil)
 	testing.expect(t, find_action(output.actions, window_action) != nil)
 	testing.expect(t, find_action(output.actions, popup_action) != nil)
 	testing.expect(t, find_action(output.actions, command_action) != nil)
+	testing.expect(t, find_action(output.actions, shared_action) != nil)
+}
+
+@(test)
+action_scope_handles_large_control_sets_test :: proc(t: ^testing.T) {
+	ctx: Context
+	context_init(&ctx)
+	defer context_destroy(&ctx)
+	frame := begin_frame(&ctx, {viewport = {0, 0, 100, 100}})
+	defer frame_destroy(&frame)
+	for index in 0..<2048 {
+		action := Action_ID(index+1)
+		append(&frame.actions, Action_Record{id = action, enabled = true})
+		append(&frame.boxes, Box{
+			flags = {.Interactive},
+			control = {action = action},
+		})
+		if index%2 == 1 {
+			append(&frame.controls, Control_Record{action = action})
+		}
+	}
+	command_action := Action_ID(4096)
+	append(&frame.actions, Action_Record{id = command_action, enabled = true})
+	scope_actions_to_published_controls(&frame)
+	testing.expect_value(t, len(frame.actions), 1025)
+	for index in 0..<1024 {
+		testing.expect_value(t, frame.actions[index].id, Action_ID((index+1)*2))
+	}
+	testing.expect_value(t, frame.actions[1024].id, command_action)
 }
 
 @(test)

@@ -166,6 +166,7 @@ Accessibility_Role :: enum {
 	List,
 	List_Item,
 	Group,
+	Link,
 }
 
 Flash_Anchor :: enum {
