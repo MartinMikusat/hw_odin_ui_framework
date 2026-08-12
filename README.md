@@ -35,10 +35,12 @@ ordered draw buckets. It does not copy RADDBG source code.
   max-blend offscreen and then over-composite onto the canvas.
 - `macos` adapts AppKit pointer and Accessibility events to published controls.
 
-`macos.Frame_Timer` owns the main-run-loop frame clock. It registers one timer
-in `NSDefaultRunLoopMode` and `NSEventTrackingRunLoopMode`, so rendering
-continues during live window resizing. The application owns the callback and
-must stop the timer before it releases the callback target.
+`macos.Display_Link` wraps the macOS 14 `NSView` display-link API. It follows
+the view between displays, runs in normal and event-tracking run-loop modes,
+starts paused, and accepts a best-effort 30–120 Hz frame-rate range with 120 Hz
+preferred. The older `macos.Frame_Timer` remains available for existing hosts;
+no application is migrated implicitly. The application owns either callback
+target and must stop the clock before it releases that target.
 
 Applications add this repository as an Odin collection:
 
@@ -53,11 +55,19 @@ import draw "ui_framework:draw"
 
 ## Frame contract
 
-1. Queue input from the platform callbacks.
-2. Build each visible box and control once.
-3. Complete layout and publish the frame output.
-4. Dispatch each activation through the application's typed action router.
-5. Encode the ordered draw stream into the application's render target.
+1. Queue input or mutate application state, then call `request_frame` with the
+   corresponding input, state, animation, surface, or diagnostic reason.
+2. The host wake callback resumes its platform display link.
+3. The host calls `take_frame_requests`, builds each visible box and control,
+   completes layout, and publishes the frame output.
+4. The host dispatches activations and encodes the ordered draw stream.
+5. Active animations request their successor frame. When no requests remain,
+   the host pauses its display link.
+
+Requests coalesce in a `bit_set`, so several mutations wake a sleeping host
+once while preserving their reasons. Idle means the application receives no
+frame callback and performs no UI build, shaping, Metal encoding, or present;
+the operating-system event loop and compositor continue independently.
 
 The core retains only state keyed by stable control identity. Each frame owns
 its box tree, events, signals, controls, and draw commands. `###` separates a
@@ -74,6 +84,11 @@ Pointer, scroll, keyboard, text, and file-drop events enter one ordered queue.
 Controls consume matching events and emit signals. The context retains hot,
 active, focus, disabled, scroll, and animation values for the next frame. Key
 and text payloads remain owned through frame publication.
+
+Render emission intersects every box with the viewport and ancestor clips.
+Boxes with an empty resolved clip publish no paint or control. A non-clipping
+parent still traverses its children because a positioned child can re-enter
+the viewport.
 
 Layout runs standalone and upward-dependent size passes on each axis. The
 downward arrangement pass resolves percentages and remaining space, then
@@ -114,7 +129,11 @@ contracts live in
 
 CoreText returns an opaque prepared-run handle. The box stores that handle and
 uses its metrics for alignment. Glyph emission consumes the same handle, so the
-measurement and draw paths cannot shape different text.
+measurement and draw paths cannot shape different text. Prepared runs persist
+across frames behind an exact text/font/size/tracking/width/truncation/scale/font-
+generation key. The cache preserves stable slot handles, exposes hit/miss/
+eviction counters, removes entries unused for 240 rendered frames, and holds at
+most 4096 live runs.
 
 `Registry_View` exposes borrowed frame records without cloning. A persistent
 `Registry_Builder` supports callbacks that outlive a frame arena. Both forms use

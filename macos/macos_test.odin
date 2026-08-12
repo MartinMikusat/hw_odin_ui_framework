@@ -3,6 +3,17 @@ package macos
 import "core:testing"
 import ui "ui_framework:core"
 
+@(test)
+display_link_range_accepts_120_hz_and_rejects_inverted_bounds_test :: proc(t: ^testing.T) {
+	value, ok := display_link_rate_range()
+	testing.expect(t, ok)
+	testing.expect_value(t, value, Frame_Rate_Range{30, 120, 120})
+	_, ok = display_link_rate_range(120, 60, 120)
+	testing.expect(t, !ok)
+	_, ok = display_link_rate_range(30, 120, 144)
+	testing.expect(t, !ok)
+}
+
 published_fixture :: proc(ctx: ^ui.Context) {
 	ui.context_init(ctx)
 	frame := ui.begin_frame(ctx, {viewport = {0, 0, 100, 100}})

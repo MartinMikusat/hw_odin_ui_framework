@@ -81,6 +81,8 @@ ALPHA_PAGE_LIMIT :: 4
 COLOR_PAGE_SIZE :: 1024
 COLOR_PAGE_LIMIT :: 2
 GLYPH_PADDING :: 2
+SHAPE_CACHE_LIMIT :: 4096
+SHAPE_CACHE_STALE_FRAMES :: u64(240)
 
 Atlas_Format :: enum {
 	Alpha,
@@ -148,6 +150,8 @@ Shape_Key :: struct {
 	size_bits:     u32,
 	tracking_bits: u32,
 	width_bits:    u32,
+	scale_bits:    u32,
+	font_generation: u64,
 	truncate:      bool,
 }
 
@@ -157,6 +161,16 @@ Shaped_Run :: struct {
 	line:      rawptr,
 	glyphs:    [dynamic]Shaped_Glyph,
 	metrics:   ui.Text_Metrics,
+	last_used_frame: u64,
+	live:      bool,
+}
+
+Shape_Cache_Stats :: struct {
+	hits:      u64,
+	misses:    u64,
+	evictions: u64,
+	entries:   int,
+	limit:     int,
 }
 
 Wrapped_Line_Range :: struct {
@@ -172,6 +186,13 @@ Context :: struct {
 	allocator:        mem.Allocator,
 	fonts:            [dynamic]Font_Entry,
 	runs:             [dynamic]Shaped_Run,
+	free_run_indices: [dynamic]int,
+	run_index:        map[Shape_Key]int,
+	run_count:        int,
+	shape_hits:       u64,
+	shape_misses:     u64,
+	shape_evictions:  u64,
+	font_generation:  u64,
 	pages:            [dynamic]Atlas_Page,
 	retired_pages:    [dynamic]Atlas_Page,
 	glyphs:           map[Glyph_Key]Atlas_Glyph,
@@ -183,9 +204,16 @@ Context :: struct {
 
 context_init :: proc(value: ^Context, allocator := context.allocator) {
 	assert(value != nil)
-	value^ = Context{allocator = allocator, backing_scale = 1, generation = 1}
+	value^ = Context{
+		allocator = allocator,
+		backing_scale = 1,
+		generation = 1,
+		font_generation = 1,
+	}
 	value.fonts = make([dynamic]Font_Entry, allocator)
 	value.runs = make([dynamic]Shaped_Run, allocator)
+	value.free_run_indices = make([dynamic]int, allocator)
+	value.run_index = make(map[Shape_Key]int, allocator)
 	value.pages = make([dynamic]Atlas_Page, allocator)
 	value.retired_pages = make([dynamic]Atlas_Page, allocator)
 	value.glyphs = make(map[Glyph_Key]Atlas_Glyph, allocator)
@@ -213,6 +241,8 @@ context_destroy :: proc(value: ^Context) {
 	for &page in value.retired_pages {destroy_page(value, &page)}
 	delete(value.fonts)
 	delete(value.runs)
+	delete(value.free_run_indices)
+	delete(value.run_index)
 	delete(value.pages)
 	delete(value.retired_pages)
 	delete(value.glyphs)
@@ -223,11 +253,16 @@ register_font :: proc(value: ^Context, handle: ui.Font_Handle, postscript_name: 
 	assert(value != nil && handle != ui.Font_Handle(0) && len(postscript_name) > 0)
 	for &font in value.fonts {
 		if font.handle != handle {continue}
+		if font.name == postscript_name {return}
 		delete(font.name, value.allocator)
 		font.name = strings.clone(postscript_name, value.allocator)
+		value.font_generation += 1
+		clear_shape_cache(value)
 		return
 	}
 	append(&value.fonts, Font_Entry{handle, strings.clone(postscript_name, value.allocator)})
+	value.font_generation += 1
+	clear_shape_cache(value)
 }
 
 font_name :: proc(value: ^Context, handle: ui.Font_Handle) -> string {
@@ -238,24 +273,25 @@ font_name :: proc(value: ^Context, handle: ui.Font_Handle) -> string {
 begin_frame :: proc(value: ^Context, backing_scale: f32, io: Atlas_IO = {}) {
 	assert(value != nil)
 	collect_retired(value)
-	for &run in value.runs {release_run(value, &run)}
-	clear(&value.runs)
 	value.frame += 1
 	value.backing_scale = max(backing_scale, 1)
 	value.io = io
+	purge_stale_shapes(value)
 }
 
 float_bits :: proc(value: f32) -> u32 {
 	return transmute(u32)value
 }
 
-shape_key :: proc(font: ui.Font_Handle, text: string, size, tracking, width: f32, truncate: bool) -> Shape_Key {
+shape_key :: proc(value: ^Context, font: ui.Font_Handle, text: string, size, tracking, width: f32, truncate: bool) -> Shape_Key {
 	return {
 		font = font,
 		text_hash = hash.fnv64a(transmute([]u8)text),
 		size_bits = float_bits(size),
 		tracking_bits = float_bits(tracking),
 		width_bits = float_bits(width),
+		scale_bits = float_bits(value.backing_scale),
+		font_generation = value.font_generation,
 		truncate = truncate,
 	}
 }
@@ -398,11 +434,99 @@ fill_shaped_glyphs :: proc(value: ^Context, shaped: ^Shaped_Run) {
 	}
 }
 
-shape :: proc(value: ^Context, font: ui.Font_Handle, text: string, size, tracking, maximum_width: f32, truncate: bool) -> ^Shaped_Run {
-	key := shape_key(font, text, size, tracking, maximum_width, truncate)
-	for &run in value.runs {if run.key == key && run.text == text {return &run}}
+repair_shape_index :: proc(value: ^Context, key: Shape_Key, removed_index: int) {
+	if indexed, ok := value.run_index[key]; !ok || indexed != removed_index {return}
+	for &run, index in value.runs {
+		if index != removed_index && run.live && run.key == key {
+			value.run_index[key] = index
+			return
+		}
+	}
+	delete_key(&value.run_index, key)
+}
+
+release_shape_slot :: proc(value: ^Context, index: int, eviction: bool) {
+	if index < 0 || index >= len(value.runs) || !value.runs[index].live {return}
+	key := value.runs[index].key
+	release_run(value, &value.runs[index])
+	repair_shape_index(value, key, index)
+	append(&value.free_run_indices, index)
+	value.run_count -= 1
+	if eviction {value.shape_evictions += 1}
+}
+
+clear_shape_cache :: proc(value: ^Context) {
+	if value == nil {return}
+	for &run, index in value.runs {
+		if run.live {release_shape_slot(value, index, false)}
+	}
+	clear(&value.run_index)
+}
+
+purge_stale_shapes :: proc(value: ^Context) {
+	if value == nil || value.frame <= SHAPE_CACHE_STALE_FRAMES {return}
+	cutoff := value.frame-SHAPE_CACHE_STALE_FRAMES
+	for &run, index in value.runs {
+		if run.live && run.last_used_frame <= cutoff {
+			release_shape_slot(value, index, true)
+		}
+	}
+}
+
+oldest_shape_index :: proc(value: ^Context) -> int {
+	result := -1
+	oldest := ~u64(0)
+	for &run, index in value.runs {
+		if run.live && run.last_used_frame < oldest {
+			result = index
+			oldest = run.last_used_frame
+		}
+	}
+	return result
+}
+
+allocate_shape_slot :: proc(value: ^Context) -> int {
+	if value.run_count >= SHAPE_CACHE_LIMIT {
+		oldest := oldest_shape_index(value)
+		if oldest < 0 || value.runs[oldest].last_used_frame == value.frame {return -1}
+		release_shape_slot(value, oldest, true)
+	}
+	index := -1
+	if len(value.free_run_indices) > 0 {
+		index = pop(&value.free_run_indices)
+	} else {
+		index = len(value.runs)
+		append(&value.runs, Shaped_Run{})
+	}
+	value.run_count += 1
+	return index
+}
+
+find_shape :: proc(value: ^Context, key: Shape_Key, text: string) -> int {
+	if index, ok := value.run_index[key]; ok && index >= 0 && index < len(value.runs) {
+		run := &value.runs[index]
+		if run.live && run.key == key && run.text == text {return index}
+	}
+	for &run, index in value.runs {
+		if run.live && run.key == key && run.text == text {
+			value.run_index[key] = index
+			return index
+		}
+	}
+	return -1
+}
+
+shape_at :: proc(value: ^Context, font: ui.Font_Handle, text: string, size, tracking, maximum_width: f32, truncate: bool) -> (^Shaped_Run, int) {
+	key := shape_key(value, font, text, size, tracking, maximum_width, truncate)
+	if index := find_shape(value, key, text); index >= 0 {
+		run := &value.runs[index]
+		run.last_used_frame = value.frame
+		value.shape_hits += 1
+		return run, index
+	}
+	value.shape_misses += 1
 	line := make_line(value, font, text, size, tracking)
-	if line == nil {return nil}
+	if line == nil {return nil, -1}
 	if truncate && maximum_width > 0 {
 		full_width := CTLineGetTypographicBounds(line, nil, nil, nil)
 		maximum_pixels := f64(maximum_width*value.backing_scale)
@@ -430,11 +554,35 @@ shape :: proc(value: ^Context, font: ui.Font_Handle, text: string, size, trackin
 			f32(descent)/value.backing_scale,
 			f32(leading)/value.backing_scale,
 		},
+		last_used_frame = value.frame,
+		live = true,
 	}
 	run.glyphs = make([dynamic]Shaped_Glyph, value.allocator)
 	fill_shaped_glyphs(value, &run)
-	append(&value.runs, run)
-	return &value.runs[len(value.runs)-1]
+	index := allocate_shape_slot(value)
+	if index < 0 {
+		release_run(value, &run)
+		return nil, -1
+	}
+	value.runs[index] = run
+	value.run_index[key] = index
+	return &value.runs[index], index
+}
+
+shape :: proc(value: ^Context, font: ui.Font_Handle, text: string, size, tracking, maximum_width: f32, truncate: bool) -> ^Shaped_Run {
+	run, _ := shape_at(value, font, text, size, tracking, maximum_width, truncate)
+	return run
+}
+
+shape_cache_stats :: proc(value: ^Context) -> Shape_Cache_Stats {
+	if value == nil {return {limit = SHAPE_CACHE_LIMIT}}
+	return {
+		hits = value.shape_hits,
+		misses = value.shape_misses,
+		evictions = value.shape_evictions,
+		entries = value.run_count,
+		limit = SHAPE_CACHE_LIMIT,
+	}
 }
 
 prepare_callback :: proc(
@@ -445,14 +593,9 @@ prepare_callback :: proc(
 	truncate: bool,
 ) -> ui.Prepared_Text {
 	value := (^Context)(data)
-	run := shape(value, font, text, size, tracking, maximum_width, truncate)
+	run, index := shape_at(value, font, text, size, tracking, maximum_width, truncate)
 	if run == nil {return {}}
-	for &candidate, index in value.runs {
-		if &candidate == run {
-			return {ui.Text_Run_ID(index+1), run.metrics}
-		}
-	}
-	return {}
+	return {ui.Text_Run_ID(index+1), run.metrics}
 }
 
 page_limit :: proc(format: Atlas_Format) -> int {
@@ -622,6 +765,7 @@ emit_callback :: proc(
 	index := int(run_id)-1
 	if index < 0 || index >= len(value.runs) {return}
 	run := &value.runs[index]
+	if !run.live {return}
 	origin := text_origin(rect, run.metrics, style)
 	draw.push_clip(list, rect)
 	defer draw.pop_clip(list)

@@ -3,6 +3,52 @@ package ui
 import "core:testing"
 import draw "ui_framework:draw"
 
+request_probe :: proc(user_data: rawptr) {
+	count := (^int)(user_data)
+	count^ += 1
+}
+
+@(test)
+frame_requests_coalesce_until_the_host_consumes_them_test :: proc(t: ^testing.T) {
+	ctx: Context
+	context_init(&ctx)
+	defer context_destroy(&ctx)
+	wakes := 0
+	set_frame_request_callback(&ctx, request_probe, &wakes)
+	request_frame(&ctx, .State)
+	request_frame(&ctx, .State)
+	request_frame(&ctx, .Input)
+	testing.expect_value(t, wakes, 1)
+	testing.expect(t, has_frame_requests(&ctx))
+	reasons := take_frame_requests(&ctx)
+	testing.expect(t, .State in reasons && .Input in reasons)
+	testing.expect(t, !has_frame_requests(&ctx))
+	request_frame(&ctx, .Surface)
+	testing.expect_value(t, wakes, 2)
+}
+
+@(test)
+offscreen_boxes_do_not_emit_paint_or_controls_test :: proc(t: ^testing.T) {
+	ctx: Context
+	context_init(&ctx)
+	defer context_destroy(&ctx)
+	frame := begin_frame(&ctx, {viewport = {0, 0, 100, 100}})
+	defer frame_destroy(&frame)
+	action := action_id_from_string("offscreen")
+	register_action(&frame, {id = action, functional_name = "offscreen", enabled = true})
+	_ = box_add(&frame, Box{
+		key = key_from_string("offscreen box"),
+		debug_label = "offscreen box",
+		layout = {position = .Absolute, absolute = {120, 10, 20, 20}},
+		style = {background = {1, 1, 1, 1}, opacity = 1},
+		flags = {.Draw_Background, .Interactive},
+		control = {action = action, capabilities = {.Primary_Press}},
+	})
+	output := end_frame(&frame)
+	testing.expect_value(t, len(output.controls), 0)
+	testing.expect_value(t, trace_label_index(output.draw_list.trace[:], "offscreen box"), -1)
+}
+
 fixed_prepare :: proc(
 	user_data: rawptr,
 	font: Font_Handle,

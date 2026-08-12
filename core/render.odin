@@ -12,13 +12,15 @@ is_descendant_of :: proc(frame: ^Frame, index, ancestor: int) -> bool {
 
 emit_box_layer :: proc(frame: ^Frame, index: int, layer: Layer, shadows: bool) {
 	box := &frame.boxes[index]
-	box.clipped_rect = box.rect
+	box.clipped_rect = draw.rect_intersection(box.rect, frame.input.viewport)
 	for parent := box.parent; parent >= 0; parent = frame.boxes[parent].parent {
 		ancestor := &frame.boxes[parent]
 		if ancestor.style.clip || .Clip in ancestor.flags {
 			box.clipped_rect = draw.rect_intersection(box.clipped_rect, ancestor.rect)
 		}
 	}
+	visible := !draw.rect_is_empty(box.clipped_rect)
+	if !visible && box.style.clip {return}
 	transformed := box.custom_transform != nil
 	if transformed {
 		draw.push_transform(
@@ -30,11 +32,11 @@ emit_box_layer :: proc(frame: ^Frame, index: int, layer: Layer, shadows: bool) {
 	if len(trace_label) == 0 {trace_label = box.text}
 	if box.style.opacity < 1 {draw.push_opacity(&frame.draw_list, box.style.opacity)}
 	if shadows {
-		if box.layer == layer && .Drop_Shadow in box.flags && box.custom_draw != nil {
+		if visible && box.layer == layer && .Drop_Shadow in box.flags && box.custom_draw != nil {
 			box.custom_draw(box.custom_data, &frame.draw_list, box.rect)
 		}
 	} else {
-		if box.layer == layer && .Draw_Background in box.flags {
+		if visible && box.layer == layer && .Draw_Background in box.flags {
 			draw.solid(
 				&frame.draw_list,
 				box.rect,
@@ -45,7 +47,7 @@ emit_box_layer :: proc(frame: ^Frame, index: int, layer: Layer, shadows: bool) {
 				trace_label,
 			)
 		}
-		if box.layer == layer && .Draw_Border in box.flags && box.style.border_thickness > 0 {
+		if visible && box.layer == layer && .Draw_Border in box.flags && box.style.border_thickness > 0 {
 			draw.solid(
 				&frame.draw_list,
 				box.rect,
@@ -59,10 +61,10 @@ emit_box_layer :: proc(frame: ^Frame, index: int, layer: Layer, shadows: bool) {
 	}
 	if box.style.clip {draw.push_clip(&frame.draw_list, box.rect)}
 	if !shadows {
-		if box.layer == layer && .Draw_Image in box.flags {
+		if visible && box.layer == layer && .Draw_Image in box.flags {
 			draw.image(&frame.draw_list, box.texture, box.rect, box.texture_src, label = trace_label)
 		}
-		if box.layer == layer && .Draw_Text in box.flags && frame.text_backend.emit != nil &&
+		if visible && box.layer == layer && .Draw_Text in box.flags && frame.text_backend.emit != nil &&
 		   box.text_run != Text_Run_ID(0) {
 			frame.text_backend.emit(
 				frame.text_backend.user_data,
@@ -74,10 +76,10 @@ emit_box_layer :: proc(frame: ^Frame, index: int, layer: Layer, shadows: bool) {
 				box.style.text,
 			)
 		}
-		if box.layer == layer && box.custom_draw != nil && .Drop_Shadow not_in box.flags {
+		if visible && box.layer == layer && box.custom_draw != nil && .Drop_Shadow not_in box.flags {
 			box.custom_draw(box.custom_data, &frame.draw_list, box.rect)
 		}
-		if box.layer == layer && .Interactive in box.flags &&
+		if visible && box.layer == layer && .Interactive in box.flags &&
 		   (frame.input_root < 0 ||
 		    is_descendant_of(frame, index, frame.input_root) ||
 		    .Input_Passthrough in box.flags) {

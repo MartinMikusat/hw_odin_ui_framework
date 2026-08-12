@@ -206,14 +206,16 @@ apply_scroll_layout :: proc(frame: ^Frame, index: int, content: draw.Rect) {
 	state.view_bounds = {content.w+box.overflow.x, content.h+box.overflow.y}
 	state.scroll_target.x = min(max(state.scroll_target.x, 0), box.overflow.x)
 	state.scroll_target.y = min(max(state.scroll_target.y, 0), box.overflow.y)
-	state.scroll.x, _ = animation_step(
+	animating_x: bool
+	state.scroll.x, animating_x = animation_step(
 		state.scroll.x,
 		state.scroll_target.x,
 		22,
 		frame.input.delta_seconds,
 		0.01,
 	)
-	state.scroll.y, _ = animation_step(
+	animating_y: bool
+	state.scroll.y, animating_y = animation_step(
 		state.scroll.y,
 		state.scroll_target.y,
 		22,
@@ -221,6 +223,7 @@ apply_scroll_layout :: proc(frame: ^Frame, index: int, content: draw.Rect) {
 		0.01,
 	)
 	frame.ui.states[box.key] = state
+	if animating_x || animating_y {request_frame(frame.ui, .Animation)}
 	if state.scroll.x == 0 && state.scroll.y == 0 {return}
 	delta := Vec2{-state.scroll.x, state.scroll.y}
 	for child := box.first_child; child >= 0; child = frame.boxes[child].next_sibling {
@@ -370,4 +373,3 @@ arrange_children :: proc(frame: ^Frame, index: int) {
 	}
 	apply_scroll_layout(frame, index, content)
 }
-

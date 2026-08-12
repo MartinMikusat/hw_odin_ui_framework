@@ -437,6 +437,17 @@ Frame_Output :: struct {
 	frame:     u64,
 }
 
+Frame_Request_Reason :: enum {
+	Input,
+	State,
+	Animation,
+	Surface,
+	Diagnostic,
+}
+
+Frame_Request_Reasons :: bit_set[Frame_Request_Reason]
+Frame_Request_Proc :: proc(user_data: rawptr)
+
 Published_Frame :: struct {
 	actions:  [dynamic]Action_Record,
 	controls: [dynamic]Control_Record,
@@ -457,6 +468,9 @@ Context :: struct {
 	press_times_us: [3][3]u64,
 	press_points: [3][3]Vec2,
 	drag_start: Vec2,
+	frame_requests: Frame_Request_Reasons,
+	frame_request_proc: Frame_Request_Proc,
+	frame_request_data: rawptr,
 	frame:     u64,
 }
 
@@ -555,6 +569,36 @@ context_destroy :: proc(ui: ^Context) {
 	ui^ = {}
 }
 
+set_frame_request_callback :: proc(
+	ui: ^Context,
+	callback: Frame_Request_Proc,
+	user_data: rawptr = nil,
+) {
+	assert(ui != nil)
+	ui.frame_request_proc = callback
+	ui.frame_request_data = user_data
+}
+
+request_frame :: proc(ui: ^Context, reason: Frame_Request_Reason) {
+	assert(ui != nil)
+	was_empty := card(ui.frame_requests) == 0
+	ui.frame_requests += {reason}
+	if was_empty && ui.frame_request_proc != nil {
+		ui.frame_request_proc(ui.frame_request_data)
+	}
+}
+
+take_frame_requests :: proc(ui: ^Context) -> Frame_Request_Reasons {
+	assert(ui != nil)
+	result := ui.frame_requests
+	ui.frame_requests = {}
+	return result
+}
+
+has_frame_requests :: proc(ui: ^Context) -> bool {
+	return ui != nil && card(ui.frame_requests) > 0
+}
+
 default_style :: proc() -> Style {
 	return {
 		text = {1, 1, 1, 1},
@@ -617,7 +661,7 @@ begin_frame :: proc(
 	frame.seen_keys[root.key] = true
 	if len(ui.published.controls) > 0 && len(frame.events) > 0 {
 		append(&frame.controls, ..ui.published.controls[:])
-		process_events(&frame)
+		process_events(&frame, false)
 		clear(&frame.controls)
 	}
 	return frame

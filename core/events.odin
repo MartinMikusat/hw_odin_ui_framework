@@ -8,6 +8,7 @@ queue_event :: proc(ui: ^Context, event: Event) {
 	copy.text = strings.clone(event.text, ui.allocator)
 	copy.consumed = false
 	append(&ui.events, copy)
+	request_frame(ui, .Input)
 }
 
 clear_events :: proc(ui: ^Context) {
@@ -149,25 +150,20 @@ set_control_state :: proc(
 ) {
 	if key == Key(0) {return}
 	state := ui.states[key]
+	changed := state.hot != hot || state.active != active ||
+	           state.focused != focused || state.disabled != disabled
 	state.hot = hot
 	state.active = active
 	state.focused = focused
 	state.disabled = disabled
 	state.last_seen_frame = ui.frame
 	ui.states[key] = state
+	if changed {request_frame(ui, .Animation)}
 }
 
-process_events :: proc(frame: ^Frame) {
+process_events :: proc(frame: ^Frame, finalize_states := true) {
 	assert(frame != nil)
 	ui := frame.ui
-	for key, state_value in ui.states {
-		state := state_value
-		state.hot = false
-		state.active = false
-		state.focused = key == ui.focused
-		ui.states[key] = state
-	}
-
 	for &event in frame.events {
 		if event.consumed {continue}
 		switch event.kind {
@@ -299,5 +295,18 @@ process_events :: proc(frame: ^Frame) {
 			control.id == ui.focused,
 			!control.enabled,
 		)
+	}
+	if finalize_states {
+		for key, state_value in ui.states {
+			if frame_control(frame, key) != nil {continue}
+			if state_value.hot || state_value.active || state_value.focused {
+				state := state_value
+				state.hot = false
+				state.active = false
+				state.focused = false
+				ui.states[key] = state
+				request_frame(ui, .Animation)
+			}
+		}
 	}
 }

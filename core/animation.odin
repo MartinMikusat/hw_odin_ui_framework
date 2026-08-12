@@ -57,6 +57,7 @@ animate :: proc(
 		value.epsilon,
 	)
 	ui.animations[key] = value
+	if animating {request_frame(ui, .Animation)}
 	return value.current, animating
 }
 
@@ -110,6 +111,7 @@ timeline :: proc(
 	}
 	animating := value.current != value.target
 	ui.animations[key] = value
+	if animating {request_frame(ui, .Animation)}
 	return value.current, animating
 }
 
@@ -198,6 +200,7 @@ spring :: proc(
 	}
 	animating := value.current != value.target || value.velocity != 0
 	ui.animations[key] = value
+	if animating {request_frame(ui, .Animation)}
 	return value.current, animating
 }
 

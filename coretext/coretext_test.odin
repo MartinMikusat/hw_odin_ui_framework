@@ -31,6 +31,55 @@ coretext_measurement_and_cached_shape_share_one_line_test :: proc(t: ^testing.T)
 }
 
 @(test)
+shape_cache_reuses_a_stable_run_across_frames_test :: proc(t: ^testing.T) {
+	value: Context
+	context_init(&value)
+	defer context_destroy(&value)
+	register_font(&value, ui.Font_Handle(1), "Menlo-Regular")
+	begin_frame(&value, 2)
+	first := prepare_callback(&value, ui.Font_Handle(1), "persistent", 12, 0, 0, false)
+	first_stats := shape_cache_stats(&value)
+	begin_frame(&value, 2)
+	second := prepare_callback(&value, ui.Font_Handle(1), "persistent", 12, 0, 0, false)
+	second_stats := shape_cache_stats(&value)
+	testing.expect(t, first.run != ui.Text_Run_ID(0))
+	testing.expect_value(t, second.run, first.run)
+	testing.expect_value(t, first_stats.misses, u64(1))
+	testing.expect_value(t, second_stats.hits, u64(1))
+	testing.expect_value(t, second_stats.entries, 1)
+}
+
+@(test)
+shape_cache_key_includes_scale_and_font_generation_test :: proc(t: ^testing.T) {
+	value: Context
+	context_init(&value)
+	defer context_destroy(&value)
+	register_font(&value, ui.Font_Handle(1), "Menlo-Regular")
+	begin_frame(&value, 1)
+	first := prepare_callback(&value, ui.Font_Handle(1), "scaled", 12, 0, 0, false)
+	begin_frame(&value, 2)
+	second := prepare_callback(&value, ui.Font_Handle(1), "scaled", 12, 0, 0, false)
+	testing.expect(t, first.run != second.run)
+	register_font(&value, ui.Font_Handle(1), ".AppleSystemUIFont")
+	testing.expect_value(t, shape_cache_stats(&value).entries, 0)
+}
+
+@(test)
+shape_cache_purges_a_run_after_240_unused_rendered_frames_test :: proc(t: ^testing.T) {
+	value: Context
+	context_init(&value)
+	defer context_destroy(&value)
+	register_font(&value, ui.Font_Handle(1), "Menlo-Regular")
+	begin_frame(&value, 2)
+	_ = shape(&value, ui.Font_Handle(1), "stale", 12, 0, 0, false)
+	value.frame = SHAPE_CACHE_STALE_FRAMES
+	begin_frame(&value, 2)
+	stats := shape_cache_stats(&value)
+	testing.expect_value(t, stats.entries, 0)
+	testing.expect_value(t, stats.evictions, u64(1))
+}
+
+@(test)
 prepared_run_handle_emits_without_reshaping_test :: proc(t: ^testing.T) {
 	value: Context
 	context_init(&value)
