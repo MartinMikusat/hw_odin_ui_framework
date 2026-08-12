@@ -49,6 +49,36 @@ offscreen_boxes_do_not_emit_paint_or_controls_test :: proc(t: ^testing.T) {
 	testing.expect_value(t, trace_label_index(output.draw_list.trace[:], "offscreen box"), -1)
 }
 
+@(test)
+corner_shape_flows_from_style_to_background_and_border_test :: proc(t: ^testing.T) {
+	ctx: Context
+	context_init(&ctx)
+	defer context_destroy(&ctx)
+	frame := begin_frame(&ctx, {viewport = {0, 0, 100, 100}})
+	defer frame_destroy(&frame)
+	_ = box_add(&frame, Box{
+		key = key_from_string("squircle surface"),
+		debug_label = "squircle surface",
+		layout = {position = .Absolute, absolute = {10, 10, 40, 40}},
+		style = {
+			background = {1, 1, 1, 1},
+			border = {0.5, 0.5, 0.5, 1},
+			corner_radius = 10,
+			corner_shape = .Squircle,
+			border_thickness = 1,
+			opacity = 1,
+		},
+		flags = {.Draw_Background, .Draw_Border},
+	})
+	output := end_frame(&frame)
+
+	testing.expect_value(t, len(output.draw_list.batches), 1)
+	testing.expect_value(t, len(output.draw_list.batches[0].instances), 2)
+	for instance in output.draw_list.batches[0].instances {
+		testing.expect_value(t, instance.corner_shape, draw.Corner_Shape.Squircle)
+	}
+}
+
 fixed_prepare :: proc(
 	user_data: rawptr,
 	font: Font_Handle,

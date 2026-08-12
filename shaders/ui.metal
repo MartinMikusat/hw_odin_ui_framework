@@ -9,7 +9,7 @@ struct QuadInstance {
     float border_thickness;
     float edge_softness;
     uint texture_mode;
-    uint padding;
+    uint corner_shape;
 };
 
 struct BatchUniforms {
@@ -30,6 +30,7 @@ struct VertexOut {
     float border_thickness;
     float edge_softness;
     uint texture_mode [[flat]];
+    uint corner_shape [[flat]];
 };
 
 vertex VertexOut ui_vertex(
@@ -61,10 +62,11 @@ vertex VertexOut ui_vertex(
     output.border_thickness = instance.border_thickness;
     output.edge_softness = max(instance.edge_softness, 0.5);
     output.texture_mode = instance.texture_mode;
+    output.corner_shape = instance.corner_shape;
     return output;
 }
 
-float rounded_distance(float2 local, float2 size, float4 radii) {
+float rounded_distance(float2 local, float2 size, float4 radii, uint corner_shape) {
     float2 centered = local - size * 0.5;
     bool right = centered.x >= 0.0;
     bool top = centered.y >= 0.0;
@@ -72,7 +74,19 @@ float rounded_distance(float2 local, float2 size, float4 radii) {
                        : (right ? radii.z : radii.x);
     radius = clamp(radius, 0.0, min(size.x, size.y) * 0.5);
     float2 q = abs(centered) - size * 0.5 + radius;
-    return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - radius;
+    float2 outside = max(q, 0.0);
+    float inside = min(max(q.x, q.y), 0.0);
+    if (corner_shape != 1u || radius <= 0.0 || outside.x <= 0.0 || outside.y <= 0.0) {
+        return length(outside) + inside - radius;
+    }
+
+    // CSS superellipse(2): x^4 + y^4 = r^4. Normalize the implicit
+    // field by its gradient so border and antialias offsets stay in points.
+    float2 squared = outside * outside;
+    float norm4 = sqrt(sqrt(squared.x * squared.x + squared.y * squared.y));
+    float2 cubed = squared * outside;
+    float gradient = length(cubed) / max(norm4 * norm4 * norm4, 0.0001);
+    return (norm4 - radius) / max(gradient, 0.0001);
 }
 
 fragment float4 ui_fragment(
@@ -86,7 +100,12 @@ fragment float4 ui_fragment(
         sdf_local = input.local - pad;
         sdf_size = max(input.size - 2.0 * pad, float2(0.001, 0.001));
     }
-    float distance = rounded_distance(sdf_local, sdf_size, input.corner_radii);
+    float distance = rounded_distance(
+        sdf_local,
+        sdf_size,
+        input.corner_radii,
+        input.corner_shape
+    );
     float outer_alpha = 1.0 - smoothstep(-input.edge_softness, input.edge_softness, distance);
     if (input.border_thickness > 0.0) {
         float inner_distance = distance + input.border_thickness;

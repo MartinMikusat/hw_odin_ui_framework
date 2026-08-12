@@ -49,7 +49,7 @@ GPU_Quad_Instance :: struct {
 	border_thickness: f32,
 	edge_softness:    f32,
 	texture_mode:     u32,
-	padding:          u32,
+	corner_shape:     u32,
 }
 
 Batch_Uniforms :: struct {
@@ -488,6 +488,7 @@ gpu_instance :: proc(instance: draw.Quad_Instance) -> GPU_Quad_Instance {
 		border_thickness = instance.border_thickness,
 		edge_softness = instance.edge_softness,
 		texture_mode = u32(instance.texture_mode),
+		corner_shape = u32(instance.corner_shape),
 	}
 }
 

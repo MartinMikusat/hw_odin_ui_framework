@@ -106,6 +106,7 @@ Style :: struct {
 	border:           draw.Color,
 	text:             draw.Color,
 	corner_radius:    f32,
+	corner_shape:     draw.Corner_Shape,
 	border_thickness: f32,
 	edge_softness:    f32,
 	opacity:          f32,

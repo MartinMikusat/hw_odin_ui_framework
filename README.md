@@ -117,6 +117,12 @@ Boxes can also provide a rectangle-dependent custom transform. Core applies it
 to the complete box subtree and projects published control bounds through the
 same transform, so drawing and hit testing stay aligned during motion.
 
+`draw.Corner_Shape` selects `.Round` or `.Squircle` for a solid quad. `.Round`
+is the zero value and preserves the circular rounded-box contour. `.Squircle`
+uses the exponent-four superellipse defined by CSS `superellipse(2)`. The shape
+flows through `ui.Style.corner_shape` to fills, borders, and shadows without
+changing batching; applications must opt in explicitly.
+
 Ordinary applications rebuild draw lists every requested frame, matching the
 RADDBG immediate-UI model. Media hot loops may retain chrome `draw.Bucket`
 values across ticks when panels and labels are unchanged. Those buckets may

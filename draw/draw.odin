@@ -33,6 +33,11 @@ Combine :: enum {
 	Max,
 }
 
+Corner_Shape :: enum {
+	Round,
+	Squircle,
+}
+
 Quad_Instance :: struct {
 	dst:              Rect,
 	src:              Rect,
@@ -41,6 +46,7 @@ Quad_Instance :: struct {
 	border_thickness: f32,
 	edge_softness:    f32,
 	texture_mode:     Texture_Mode,
+	corner_shape:     Corner_Shape,
 }
 
 Batch_Key :: struct {
@@ -335,6 +341,7 @@ solid :: proc(
 	label := "",
 	combine := Combine.Over,
 	mode := Texture_Mode.Solid,
+	corner_shape := Corner_Shape.Round,
 ) {
 	if rect_is_empty(rect) || color[3] <= 0 {return}
 	instance := Quad_Instance{
@@ -344,6 +351,7 @@ solid :: proc(
 		border_thickness = border_thickness,
 		edge_softness = edge_softness,
 		texture_mode = mode,
+		corner_shape = corner_shape,
 	}
 	append_quad(list, instance, kind = .Solid, label = label, combine = combine)
 }

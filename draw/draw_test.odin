@@ -23,6 +23,27 @@ submission_order_and_adjacent_batching_test :: proc(t: ^testing.T) {
 }
 
 @(test)
+solid_defaults_to_round_and_keeps_squircle_in_the_same_batch_test :: proc(t: ^testing.T) {
+	list: List
+	list_init(&list)
+	defer list_destroy(&list)
+
+	solid(&list, {0, 0, 20, 20}, {1, 1, 1, 1}, 6)
+	solid(
+		&list,
+		{24, 0, 20, 20},
+		{1, 1, 1, 1},
+		6,
+		corner_shape = .Squircle,
+	)
+
+	testing.expect_value(t, len(list.batches), 1)
+	testing.expect_value(t, len(list.batches[0].instances), 2)
+	testing.expect_value(t, list.batches[0].instances[0].corner_shape, Corner_Shape.Round)
+	testing.expect_value(t, list.batches[0].instances[1].corner_shape, Corner_Shape.Squircle)
+}
+
+@(test)
 clip_and_opacity_state_split_batches_without_reordering_test :: proc(t: ^testing.T) {
 	list: List
 	list_init(&list)

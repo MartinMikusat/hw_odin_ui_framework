@@ -45,6 +45,7 @@ emit_box_layer :: proc(frame: ^Frame, index: int, layer: Layer, shadows: bool) {
 				0,
 				box.style.edge_softness,
 				trace_label,
+				corner_shape = box.style.corner_shape,
 			)
 		}
 		if visible && box.layer == layer && .Draw_Border in box.flags && box.style.border_thickness > 0 {
@@ -56,6 +57,7 @@ emit_box_layer :: proc(frame: ^Frame, index: int, layer: Layer, shadows: bool) {
 				box.style.border_thickness,
 				box.style.edge_softness,
 				"border",
+				corner_shape = box.style.corner_shape,
 			)
 		}
 	}
