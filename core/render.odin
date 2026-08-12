@@ -19,6 +19,13 @@ emit_box_layer :: proc(frame: ^Frame, index: int, layer: Layer, shadows: bool) {
 			box.clipped_rect = draw.rect_intersection(box.clipped_rect, ancestor.rect)
 		}
 	}
+	transformed := box.custom_transform != nil
+	if transformed {
+		draw.push_transform(
+			&frame.draw_list,
+			box.custom_transform(box.transform_data, box.rect),
+		)
+	}
 	trace_label := box.debug_label
 	if len(trace_label) == 0 {trace_label = box.text}
 	if box.style.opacity < 1 {draw.push_opacity(&frame.draw_list, box.style.opacity)}
@@ -77,6 +84,11 @@ emit_box_layer :: proc(frame: ^Frame, index: int, layer: Layer, shadows: bool) {
 			action := find_action(frame.actions[:], box.control.action)
 			enabled := box.control.action == Action_ID(0) || (action != nil && action.enabled)
 			if .Disabled in box.flags {enabled = false}
+			control_rect := draw.transform_rect_bounds(draw.top_transform(&frame.draw_list), box.rect)
+			control_clip := draw.transform_rect_bounds(
+				draw.top_transform(&frame.draw_list),
+				box.clipped_rect,
+			)
 			append(&frame.controls, Control_Record{
 				id = box.key,
 				functional_name = box.control.functional_name,
@@ -86,9 +98,9 @@ emit_box_layer :: proc(frame: ^Frame, index: int, layer: Layer, shadows: bool) {
 				flash_anchor = box.control.flash_anchor,
 				capabilities = box.control.capabilities,
 				action = box.control.action,
-				rect = box.rect,
-				clip = box.clipped_rect,
-				clip_set = box.clipped_rect != box.rect,
+				rect = control_rect,
+				clip = control_clip,
+				clip_set = control_clip != control_rect,
 				layer = box.layer,
 				focusable = .Click_To_Focus in box.flags,
 				focus_root = focus_root_for_box(frame, index),
@@ -101,6 +113,7 @@ emit_box_layer :: proc(frame: ^Frame, index: int, layer: Layer, shadows: bool) {
 	}
 	if box.style.clip {draw.pop_clip(&frame.draw_list)}
 	if box.style.opacity < 1 {draw.pop_opacity(&frame.draw_list)}
+	if transformed {draw.pop_transform(&frame.draw_list)}
 }
 
 layer_label :: proc(layer: Layer) -> string {

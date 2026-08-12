@@ -30,6 +30,95 @@ trace_label_index :: proc(trace: []draw.Trace_Entry, label: string) -> int {
 	return -1
 }
 
+half_scale_about_center :: proc(user_data: rawptr, rect: draw.Rect) -> draw.Transform_2D {
+	return {
+		m00 = 0.5,
+		m11 = 0.5,
+		tx = (rect.x+rect.w/2)*0.5,
+		ty = (rect.y+rect.h/2)*0.5,
+	}
+}
+
+@(test)
+timeline_holds_its_delay_and_reverses_from_the_current_value_test :: proc(t: ^testing.T) {
+	ctx: Context
+	context_init(&ctx)
+	defer context_destroy(&ctx)
+	key := key_from_string("timed track")
+	value, animating := timeline(&ctx, key, 1, 0.04, 0.20, 0.05)
+	testing.expect_value(t, value, f32(0))
+	testing.expect(t, animating)
+	value, animating = timeline(&ctx, key, 1, 0.02, 0.20, 0.05)
+	testing.expect(t, value > 0 && value < 1)
+	testing.expect(t, animating)
+	before_reverse := value
+	value, animating = timeline(&ctx, key, 0, 0.01, 0.10)
+	testing.expect(t, value < before_reverse && value > 0)
+	testing.expect(t, animating)
+	value, animating = timeline(&ctx, key, 0, 0.20, 0.10)
+	testing.expect_value(t, value, f32(0))
+	testing.expect(t, !animating)
+}
+
+@(test)
+spring_step_settles_without_frame_rate_dependent_instability_test :: proc(t: ^testing.T) {
+	current, velocity: f32
+	for _ in 0..<120 {
+		current, velocity = spring_step(current, velocity, 1, 4.5, 0.8, 1.0/60.0)
+	}
+	testing.expect(t, abs(current-1) < 0.001)
+	testing.expect(t, abs(velocity) < 0.01)
+	large_step, large_velocity := spring_step(0, 0, 1, 4.5, 0.8, 0.1)
+	testing.expect(t, large_step > 0 && large_step < 1.2)
+	testing.expect(t, large_velocity > 0)
+}
+
+@(test)
+spring_holds_delay_and_preserves_velocity_on_reversal_test :: proc(t: ^testing.T) {
+	ctx: Context
+	context_init(&ctx)
+	defer context_destroy(&ctx)
+	key := key_from_string("spring track")
+	value, animating := spring(&ctx, key, 1, 0.04, 5, 0.8, 0.05)
+	testing.expect_value(t, value, f32(0))
+	testing.expect(t, animating)
+	value, animating = spring(&ctx, key, 1, 0.02, 5, 0.8, 0.05)
+	testing.expect(t, value > 0)
+	testing.expect(t, animating)
+	velocity_before := ctx.animations[key].velocity
+	_, _ = spring(&ctx, key, 0, 0, 7, 0.95)
+	testing.expect_value(t, ctx.animations[key].velocity, velocity_before)
+}
+
+@(test)
+custom_transform_projects_subtree_draw_and_control_bounds_test :: proc(t: ^testing.T) {
+	ctx: Context
+	context_init(&ctx)
+	defer context_destroy(&ctx)
+	frame := begin_frame(&ctx, {viewport = {0, 0, 100, 100}})
+	defer frame_destroy(&frame)
+	action := action_id_from_string("scaled action")
+	register_action(&frame, {id = action, functional_name = "scaled", label = "Scaled", enabled = true})
+	_ = box_begin(&frame, Box{
+		key = key_from_string("scaled parent"),
+		layout = {position = .Absolute, absolute = {0, 0, 100, 100}},
+		custom_transform = half_scale_about_center,
+	})
+	_ = box_add(&frame, Box{
+		key = key_from_string("scaled child"),
+		debug_label = "scaled child",
+		layout = {position = .Absolute, absolute = {20, 20, 40, 20}},
+		style = {background = {1, 1, 1, 1}, opacity = 1},
+		flags = {.Draw_Background, .Interactive},
+		control = {functional_name = "scaled", action = action, capabilities = {.Primary_Press}},
+	})
+	box_end(&frame)
+	output := end_frame(&frame)
+	testing.expect_value(t, len(output.controls), 1)
+	testing.expect_value(t, output.controls[0].rect, draw.Rect{35, 35, 20, 10})
+	testing.expect_value(t, output.draw_list.batches[0].key.transform.m00, f32(0.5))
+}
+
 @(test)
 row_and_column_layout_allocate_remaining_space_test :: proc(t: ^testing.T) {
 	ctx: Context

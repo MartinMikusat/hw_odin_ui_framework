@@ -318,8 +318,16 @@ Signal :: struct {
 Animation :: struct {
 	current:         f32,
 	target:          f32,
+	velocity:        f32,
+	start:           f32,
+	elapsed:         f32,
+	delay:           f32,
+	duration:        f32,
 	rate:            f32,
 	epsilon:         f32,
+	velocity_epsilon: f32,
+	timed:           bool,
+	spring:          bool,
 	last_seen_frame: u64,
 }
 
@@ -368,6 +376,7 @@ Text_Backend :: struct {
 }
 
 Custom_Draw_Proc :: proc(user_data: rawptr, list: ^draw.List, rect: draw.Rect)
+Custom_Transform_Proc :: proc(user_data: rawptr, rect: draw.Rect) -> draw.Transform_2D
 
 Persistent_State :: struct {
 	hot:             bool,
@@ -401,6 +410,8 @@ Box :: struct {
 	control:      Control_Descriptor,
 	custom_draw:  Custom_Draw_Proc,
 	custom_data:  rawptr,
+	custom_transform: Custom_Transform_Proc,
+	transform_data:   rawptr,
 	text_run:     Text_Run_ID,
 	text_metrics: Text_Metrics,
 	desired:      Vec2,

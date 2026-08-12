@@ -64,6 +64,12 @@ its box tree, events, signals, controls, and draw commands. `###` separates a
 stable identity suffix from display text, so localization and changing labels
 do not reset interaction state.
 
+`animate` provides rate-based interpolation for continuous interaction state.
+`timeline` provides reversible, keyed tracks with an explicit delay and
+duration. `spring` provides reversible, keyed damped motion with retained
+velocity, explicit delay, frequency, and damping ratio. All track types share
+context lifetime, stale-track removal, and animation-state reporting.
+
 Pointer, scroll, keyboard, text, and file-drop events enter one ordered queue.
 Controls consume matching events and emit signals. The context retains hot,
 active, focus, disabled, scroll, and animation values for the next frame. Key
@@ -92,6 +98,9 @@ Nested buckets splice complete draw streams into their parent without changing
 relative order. Parent transforms, clips, and opacity compose into each nested
 bucket before Metal encodes its instances. Clip rectangles are projected into
 render-target coordinates before the renderer converts them to Metal scissors.
+Boxes can also provide a rectangle-dependent custom transform. Core applies it
+to the complete box subtree and projects published control bounds through the
+same transform, so drawing and hit testing stay aligned during motion.
 
 Ordinary applications rebuild draw lists every requested frame, matching the
 RADDBG immediate-UI model. Media hot loops may retain chrome `draw.Bucket`
