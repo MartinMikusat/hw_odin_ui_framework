@@ -66,14 +66,19 @@ Batch_Range :: struct {
 }
 
 Renderer :: struct {
-	allocator:       mem.Allocator,
-	device:          Object,
-	pipeline:        Object,
-	white_texture:   Object,
-	linear_sampler:  Object,
-	nearest_sampler: Object,
-	textures:        [dynamic]Object,
+	allocator:        mem.Allocator,
+	device:           Object,
+	pipeline:         Object,
+	max_pipeline:     Object,
+	white_texture:    Object,
+	linear_sampler:   Object,
+	nearest_sampler:  Object,
+	textures:         [dynamic]Object,
 	runtime_compiled: bool,
+	pixel_format:     uint,
+	shadow_texture:   Object,
+	shadow_width:     uint,
+	shadow_height:    uint,
 }
 
 send_address: rawptr
@@ -176,6 +181,18 @@ msg_void_draw_instanced :: proc(receiver: Object, selector: Selector, primitive,
 	p(receiver, selector, primitive, vertex_start, vertex_count, instance_count)
 }
 
+MTL_LOAD_LOAD :: uint(1)
+MTL_LOAD_CLEAR :: uint(2)
+
+MTL_Clear_Color :: struct {
+	red, green, blue, alpha: f64,
+}
+
+msg_void_clear_color :: proc(receiver: Object, selector: Selector, color: MTL_Clear_Color) {
+	p := transmute(proc "c" (_: Object, _: Selector, _: MTL_Clear_Color))send_address
+	p(receiver, selector, color)
+}
+
 nsstring :: proc(value: string) -> Object {
 	if len(value) == 0 {return CFStringCreateWithCString(nil, "", UTF8_ENCODING)}
 	text, err := strings.clone_to_cstring(value, context.temp_allocator)
@@ -218,7 +235,7 @@ load_library :: proc(renderer: ^Renderer, metallib_path: string, allow_runtime_f
 	return library
 }
 
-create_pipeline :: proc(renderer: ^Renderer, library: Object, pixel_format: uint) -> Object {
+create_pipeline :: proc(renderer: ^Renderer, library: Object, pixel_format: uint, max_blend := false) -> Object {
 	vertex_name := nsstring("ui_vertex")
 	fragment_name := nsstring("ui_fragment")
 	if vertex_name == nil || fragment_name == nil {
@@ -246,10 +263,19 @@ create_pipeline :: proc(renderer: ^Renderer, library: Object, pixel_format: uint
 	attachment := msg_id_u(attachments, sel_registerName("objectAtIndexedSubscript:"), 0)
 	msg_void_u(attachment, sel_registerName("setPixelFormat:"), pixel_format)
 	msg_void_bool(attachment, sel_registerName("setBlendingEnabled:"), true)
-	msg_void_u(attachment, sel_registerName("setSourceRGBBlendFactor:"), 1)
-	msg_void_u(attachment, sel_registerName("setDestinationRGBBlendFactor:"), 5)
-	msg_void_u(attachment, sel_registerName("setSourceAlphaBlendFactor:"), 1)
-	msg_void_u(attachment, sel_registerName("setDestinationAlphaBlendFactor:"), 5)
+	if max_blend {
+		msg_void_u(attachment, sel_registerName("setRgbBlendOperation:"), 4)
+		msg_void_u(attachment, sel_registerName("setAlphaBlendOperation:"), 4)
+		msg_void_u(attachment, sel_registerName("setSourceRGBBlendFactor:"), 1)
+		msg_void_u(attachment, sel_registerName("setDestinationRGBBlendFactor:"), 1)
+		msg_void_u(attachment, sel_registerName("setSourceAlphaBlendFactor:"), 1)
+		msg_void_u(attachment, sel_registerName("setDestinationAlphaBlendFactor:"), 1)
+	} else {
+		msg_void_u(attachment, sel_registerName("setSourceRGBBlendFactor:"), 1)
+		msg_void_u(attachment, sel_registerName("setDestinationRGBBlendFactor:"), 5)
+		msg_void_u(attachment, sel_registerName("setSourceAlphaBlendFactor:"), 1)
+		msg_void_u(attachment, sel_registerName("setDestinationAlphaBlendFactor:"), 5)
+	}
 	error: Object
 	return msg_id_descriptor_error(
 		renderer.device,
@@ -306,16 +332,17 @@ renderer_init :: proc(
 ) -> bool {
 	assert(renderer != nil)
 	if device == nil || !load_objc() {return false}
-	renderer^ = Renderer{allocator = allocator, device = device}
+	renderer^ = Renderer{allocator = allocator, device = device, pixel_format = pixel_format}
 	renderer.textures = make([dynamic]Object, allocator)
 	library := load_library(renderer, metallib_path, allow_runtime_fallback)
 	if library == nil {renderer_destroy(renderer); return false}
-	renderer.pipeline = create_pipeline(renderer, library, pixel_format)
+	renderer.pipeline = create_pipeline(renderer, library, pixel_format, false)
+	renderer.max_pipeline = create_pipeline(renderer, library, pixel_format, true)
 	release(library)
 	renderer.white_texture = create_white_texture(renderer)
 	renderer.linear_sampler = create_sampler(renderer, false)
 	renderer.nearest_sampler = create_sampler(renderer, true)
-	if renderer.pipeline == nil || renderer.white_texture == nil ||
+	if renderer.pipeline == nil || renderer.max_pipeline == nil || renderer.white_texture == nil ||
 	   renderer.linear_sampler == nil || renderer.nearest_sampler == nil {
 		renderer_destroy(renderer)
 		return false
@@ -328,6 +355,8 @@ renderer_destroy :: proc(renderer: ^Renderer) {
 	end_texture_frame(renderer)
 	delete(renderer.textures)
 	release(renderer.pipeline)
+	release(renderer.max_pipeline)
+	release(renderer.shadow_texture)
 	release(renderer.white_texture)
 	release(renderer.linear_sampler)
 	release(renderer.nearest_sampler)
@@ -555,5 +584,362 @@ encode :: proc(
 			ranges[index].count,
 		)
 	}
+	return true
+}
+
+ensure_shadow_texture :: proc(renderer: ^Renderer, width, height: uint) -> bool {
+	if renderer.shadow_texture != nil && renderer.shadow_width == width && renderer.shadow_height == height {
+		return true
+	}
+	release(renderer.shadow_texture)
+	renderer.shadow_texture = nil
+	if width == 0 || height == 0 {return false}
+	descriptor := msg_id_u_u_u_bool(
+		objc_getClass("MTLTextureDescriptor"),
+		sel_registerName("texture2DDescriptorWithPixelFormat:width:height:mipmapped:"),
+		renderer.pixel_format,
+		width,
+		height,
+		false,
+	)
+	if descriptor == nil {return false}
+	msg_void_u(descriptor, sel_registerName("setUsage:"), 5)
+	texture := msg_id_id(renderer.device, sel_registerName("newTextureWithDescriptor:"), descriptor)
+	if texture == nil {return false}
+	renderer.shadow_texture = texture
+	renderer.shadow_width = width
+	renderer.shadow_height = height
+	return true
+}
+
+begin_color_encoder :: proc(
+	command_buffer: Object,
+	texture: Object,
+	load_action: uint,
+	clear: MTL_Clear_Color,
+) -> Object {
+	pass := msg_id(objc_getClass("MTLRenderPassDescriptor"), sel_registerName("renderPassDescriptor"))
+	if pass == nil {return nil}
+	attachments := msg_id(pass, sel_registerName("colorAttachments"))
+	attachment := msg_id_u(attachments, sel_registerName("objectAtIndexedSubscript:"), 0)
+	msg_void_id(attachment, sel_registerName("setTexture:"), texture)
+	msg_void_u(attachment, sel_registerName("setLoadAction:"), load_action)
+	msg_void_u(attachment, sel_registerName("setStoreAction:"), 1)
+	if load_action == MTL_LOAD_CLEAR {
+		msg_void_clear_color(attachment, sel_registerName("setClearColor:"), clear)
+	}
+	return msg_id_id(command_buffer, sel_registerName("renderCommandEncoderWithDescriptor:"), pass)
+}
+
+encode_batch_range :: proc(
+	renderer: ^Renderer,
+	encoder: Object,
+	pipeline: Object,
+	buffer: Object,
+	list: ^draw.List,
+	ranges: []Batch_Range,
+	start, end: int,
+	viewport_points: [2]f32,
+	backing_scale: f32,
+) {
+	msg_void_id(encoder, sel_registerName("setRenderPipelineState:"), pipeline)
+	for index in start ..< end {
+		batch := &list.batches[index]
+		if ranges[index].count == 0 {continue}
+		uniforms := Batch_Uniforms{
+			viewport = viewport_points,
+			opacity = batch.key.opacity,
+			transform = {
+				batch.key.transform.m00,
+				batch.key.transform.m01,
+				batch.key.transform.m10,
+				batch.key.transform.m11,
+			},
+			translation = {batch.key.transform.tx, batch.key.transform.ty},
+		}
+		msg_void_ptr_u_u(
+			encoder,
+			sel_registerName("setVertexBytes:length:atIndex:"),
+			&uniforms,
+			size_of(Batch_Uniforms),
+			1,
+		)
+		texture := texture_for_handle(renderer, batch.key.texture)
+		msg_void_id_u(encoder, sel_registerName("setFragmentTexture:atIndex:"), texture, 0)
+		sampler := renderer.linear_sampler
+		if batch.key.sampler == .Nearest {sampler = renderer.nearest_sampler}
+		msg_void_id_u(encoder, sel_registerName("setFragmentSamplerState:atIndex:"), sampler, 0)
+		clip := MTL_Scissor_Rect{
+			width = uint(max(f32(1), viewport_points[0]*backing_scale)),
+			height = uint(max(f32(1), viewport_points[1]*backing_scale)),
+		}
+		if batch.key.clip_set {
+			x0 := max(f32(0), batch.key.clip.x*backing_scale)
+			y0 := max(f32(0), (viewport_points[1]-batch.key.clip.y-batch.key.clip.h)*backing_scale)
+			x1 := min(viewport_points[0]*backing_scale, (batch.key.clip.x+batch.key.clip.w)*backing_scale)
+			y1 := min(viewport_points[1]*backing_scale, (viewport_points[1]-batch.key.clip.y)*backing_scale)
+			clip = {
+				x = uint(x0),
+				y = uint(y0),
+				width = uint(max(f32(0), x1-x0)),
+				height = uint(max(f32(0), y1-y0)),
+			}
+			if clip.width == 0 || clip.height == 0 {continue}
+		}
+		msg_void_scissor(encoder, sel_registerName("setScissorRect:"), clip)
+		msg_void_id_u_u(
+			encoder,
+			sel_registerName("setVertexBuffer:offset:atIndex:"),
+			buffer,
+			ranges[index].start*size_of(GPU_Quad_Instance),
+			0,
+		)
+		msg_void_draw_instanced(
+			encoder,
+			sel_registerName("drawPrimitives:vertexStart:vertexCount:instanceCount:"),
+			3,
+			0,
+			6,
+			ranges[index].count,
+		)
+	}
+}
+
+composite_shadow_texture :: proc(
+	renderer: ^Renderer,
+	encoder: Object,
+	viewport_points: [2]f32,
+	backing_scale: f32,
+) {
+	instance := GPU_Quad_Instance{
+		dst = {0, 0, viewport_points[0], viewport_points[1]},
+		src = {0, 1, 1, -1},
+		colors = {{1, 1, 1, 1}, {1, 1, 1, 1}, {1, 1, 1, 1}, {1, 1, 1, 1}},
+		edge_softness = 0.5,
+		texture_mode = u32(draw.Texture_Mode.Color),
+	}
+	buffer := msg_id_ptr_u_u(
+		renderer.device,
+		sel_registerName("newBufferWithBytes:length:options:"),
+		&instance,
+		size_of(GPU_Quad_Instance),
+		0,
+	)
+	if buffer == nil {return}
+	defer release(buffer)
+	uniforms := Batch_Uniforms{
+		viewport = viewport_points,
+		opacity = 1,
+		transform = {1, 0, 0, 1},
+	}
+	msg_void_id(encoder, sel_registerName("setRenderPipelineState:"), renderer.pipeline)
+	msg_void_id_u_u(encoder, sel_registerName("setVertexBuffer:offset:atIndex:"), buffer, 0, 0)
+	msg_void_ptr_u_u(
+		encoder,
+		sel_registerName("setVertexBytes:length:atIndex:"),
+		&uniforms,
+		size_of(Batch_Uniforms),
+		1,
+	)
+	msg_void_id_u(encoder, sel_registerName("setFragmentTexture:atIndex:"), renderer.shadow_texture, 0)
+	msg_void_id_u(encoder, sel_registerName("setFragmentSamplerState:atIndex:"), renderer.nearest_sampler, 0)
+	clip := MTL_Scissor_Rect{
+		width = uint(max(f32(1), viewport_points[0]*backing_scale)),
+		height = uint(max(f32(1), viewport_points[1]*backing_scale)),
+	}
+	msg_void_scissor(encoder, sel_registerName("setScissorRect:"), clip)
+	msg_void_draw_instanced(
+		encoder,
+		sel_registerName("drawPrimitives:vertexStart:vertexCount:instanceCount:"),
+		3,
+		0,
+		6,
+		1,
+	)
+}
+
+encode_to_drawable :: proc(
+	renderer: ^Renderer,
+	command_buffer: Object,
+	color_texture: Object,
+	list: ^draw.List,
+	viewport_points: [2]f32,
+	backing_scale := f32(1),
+	clear_color: draw.Color = {0, 0, 0, 1},
+) -> bool {
+	if renderer == nil || renderer.pipeline == nil || command_buffer == nil ||
+	   color_texture == nil || list == nil {
+		return false
+	}
+	pixel_w := uint(max(f32(1), viewport_points[0]*backing_scale))
+	pixel_h := uint(max(f32(1), viewport_points[1]*backing_scale))
+	total := 0
+	for &batch in list.batches {total += len(batch.instances)}
+	instances := make([]GPU_Quad_Instance, max(total, 1), context.temp_allocator)
+	defer delete(instances, context.temp_allocator)
+	ranges := make([]Batch_Range, len(list.batches), context.temp_allocator)
+	defer delete(ranges, context.temp_allocator)
+	cursor := 0
+	for &batch, index in list.batches {
+		ranges[index] = {uint(cursor), uint(len(batch.instances))}
+		for instance in batch.instances {
+			instances[cursor] = gpu_instance(instance)
+			cursor += 1
+		}
+	}
+	buffer: Object
+	if total > 0 {
+		buffer = msg_id_ptr_u_u(
+			renderer.device,
+			sel_registerName("newBufferWithBytes:length:options:"),
+			raw_data(instances),
+			uint(len(instances))*size_of(GPU_Quad_Instance),
+			0,
+		)
+		if buffer == nil {return false}
+	}
+	defer {
+		if buffer != nil {release(buffer)}
+	}
+
+	clear := MTL_Clear_Color{
+		f64(clear_color[0]),
+		f64(clear_color[1]),
+		f64(clear_color[2]),
+		f64(clear_color[3]),
+	}
+	main_encoder: Object
+	main_load := MTL_LOAD_CLEAR
+	in_max := false
+	max_start := 0
+
+	end_main :: proc(encoder: ^Object) {
+		if encoder^ == nil {return}
+		msg_void(encoder^, sel_registerName("endEncoding"))
+		encoder^ = nil
+	}
+
+	flush_max :: proc(
+		renderer: ^Renderer,
+		command_buffer: Object,
+		color_texture: Object,
+		buffer: Object,
+		list: ^draw.List,
+		ranges: []Batch_Range,
+		max_start, max_end: int,
+		viewport_points: [2]f32,
+		backing_scale: f32,
+		pixel_w, pixel_h: uint,
+		main_encoder: ^Object,
+		main_load: ^uint,
+		clear: MTL_Clear_Color,
+	) -> bool {
+		end_main(main_encoder)
+		if !ensure_shadow_texture(renderer, pixel_w, pixel_h) {return false}
+		shadow_encoder := begin_color_encoder(
+			command_buffer,
+			renderer.shadow_texture,
+			MTL_LOAD_CLEAR,
+			{0, 0, 0, 0},
+		)
+		if shadow_encoder == nil {return false}
+		if buffer != nil {
+			encode_batch_range(
+				renderer,
+				shadow_encoder,
+				renderer.max_pipeline,
+				buffer,
+				list,
+				ranges,
+				max_start,
+				max_end,
+				viewport_points,
+				backing_scale,
+			)
+		}
+		msg_void(shadow_encoder, sel_registerName("endEncoding"))
+		main_encoder^ = begin_color_encoder(command_buffer, color_texture, main_load^, clear)
+		if main_encoder^ == nil {return false}
+		main_load^ = MTL_LOAD_LOAD
+		composite_shadow_texture(renderer, main_encoder^, viewport_points, backing_scale)
+		return true
+	}
+
+	for index in 0 ..< len(list.batches) {
+		if list.batches[index].key.combine == .Max {
+			if !in_max {
+				max_start = index
+				in_max = true
+			}
+			continue
+		}
+		if in_max {
+			if !flush_max(
+				renderer,
+				command_buffer,
+				color_texture,
+				buffer,
+				list,
+				ranges,
+				max_start,
+				index,
+				viewport_points,
+				backing_scale,
+				pixel_w,
+				pixel_h,
+				&main_encoder,
+				&main_load,
+				clear,
+			) {
+				return false
+			}
+			in_max = false
+		}
+		if main_encoder == nil {
+			main_encoder = begin_color_encoder(command_buffer, color_texture, main_load, clear)
+			if main_encoder == nil {return false}
+			main_load = MTL_LOAD_LOAD
+		}
+		if buffer != nil {
+			encode_batch_range(
+				renderer,
+				main_encoder,
+				renderer.pipeline,
+				buffer,
+				list,
+				ranges,
+				index,
+				index+1,
+				viewport_points,
+				backing_scale,
+			)
+		}
+	}
+	if in_max {
+		if !flush_max(
+			renderer,
+			command_buffer,
+			color_texture,
+			buffer,
+			list,
+			ranges,
+			max_start,
+			len(list.batches),
+			viewport_points,
+			backing_scale,
+			pixel_w,
+			pixel_h,
+			&main_encoder,
+			&main_load,
+			clear,
+		) {
+			return false
+		}
+	}
+	if main_encoder == nil {
+		main_encoder = begin_color_encoder(command_buffer, color_texture, main_load, clear)
+		if main_encoder == nil {return false}
+	}
+	end_main(&main_encoder)
 	return true
 }

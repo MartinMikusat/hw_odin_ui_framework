@@ -135,6 +135,7 @@ Box_Flag :: enum {
 	Disabled,
 	Animate_X,
 	Animate_Y,
+	Drop_Shadow,
 }
 
 Box_Flags :: bit_set[Box_Flag]

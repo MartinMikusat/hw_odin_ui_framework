@@ -10,6 +10,7 @@ Models used:
 
 - **gpt-5.6-sol**
 - **Cursor Grok 4.5**
+- **Cursor Grok 4.6**
 
 The framework keeps application actions and durable product state in the
 application. It owns frame layout, transient interaction state, drawing order,
@@ -29,7 +30,9 @@ ordered draw buckets. It does not copy RADDBG source code.
 - `diagnostics` captures stable control snapshots, ordered render traces, and
   fixed-capacity CPU/GPU performance histories without allocating per frame.
 - `coretext` shapes text and supplies glyphs to the draw stream.
-- `metal` encodes the draw stream into a caller-owned Metal command buffer.
+- `metal` encodes the draw stream into Metal. `encode` writes into a caller-owned
+  encoder. `encode_to_drawable` owns the pass list so `Combine.Max` batches can
+  max-blend offscreen and then over-composite onto the canvas.
 - `macos` adapts AppKit pointer and Accessibility events to published controls.
 
 `macos.Frame_Timer` owns the main-run-loop frame clock. It registers one timer

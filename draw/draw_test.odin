@@ -104,3 +104,16 @@ clip_rect_is_projected_into_render_target_coordinates_test :: proc(t: ^testing.T
 	testing.expect(t, set)
 	testing.expect_value(t, clip, Rect{13, 2, 4, 8})
 }
+
+@(test)
+solid_max_combine_starts_a_new_batch_test :: proc(t: ^testing.T) {
+	list: List
+	list_init(&list)
+	defer list_destroy(&list)
+	solid(&list, {0, 0, 10, 10}, {0, 0, 0, 0.06})
+	solid(&list, {0, 0, 10, 10}, {0, 0, 0, 0.06}, combine = .Max, mode = .Shadow)
+	testing.expect_value(t, len(list.batches), 2)
+	testing.expect_value(t, list.batches[0].key.combine, Combine.Over)
+	testing.expect_value(t, list.batches[1].key.combine, Combine.Max)
+	testing.expect_value(t, list.batches[1].instances[0].texture_mode, Texture_Mode.Shadow)
+}

@@ -15,15 +15,6 @@ foreign metal_framework {
 	MTLCreateSystemDefaultDevice :: proc "c" () -> Object ---
 }
 
-MTL_Clear_Color :: struct {
-	red, green, blue, alpha: f64,
-}
-
-msg_void_clear_color :: proc(receiver: Object, selector: Selector, color: MTL_Clear_Color) {
-	p := transmute(proc "c" (_: Object, _: Selector, _: MTL_Clear_Color))send_address
-	p(receiver, selector, color)
-}
-
 msg_void_get_bytes :: proc(receiver: Object, selector: Selector, bytes: rawptr, bytes_per_row: uint, region: MTL_Region, level: uint) {
 	p := transmute(proc "c" (_: Object, _: Selector, _: rawptr, _: uint, _: MTL_Region, _: uint))send_address
 	p(receiver, selector, bytes, bytes_per_row, region, level)
@@ -223,4 +214,82 @@ coretext_glyph_atlas_composes_background_and_modal_text_in_one_stream_test :: pr
 	}
 	testing.expect(t, atlas_gpu_max > 0)
 	testing.expect(t, modal_max > 200)
+}
+
+@(test)
+overlapping_max_shadows_keep_peak_coverage_test :: proc(t: ^testing.T) {
+	if !load_objc() {testing.expect(t, false); return}
+	device := MTLCreateSystemDefaultDevice()
+	if device == nil {testing.expect(t, false); return}
+	renderer: Renderer
+	testing.expect(t, renderer_init(&renderer, device, allow_runtime_fallback = true))
+	defer renderer_destroy(&renderer)
+
+	descriptor := msg_id_u_u_u_bool(
+		objc_getClass("MTLTextureDescriptor"),
+		sel_registerName("texture2DDescriptorWithPixelFormat:width:height:mipmapped:"),
+		80,
+		64,
+		64,
+		false,
+	)
+	msg_void_u(descriptor, sel_registerName("setUsage:"), 5)
+	target := msg_id_id(device, sel_registerName("newTextureWithDescriptor:"), descriptor)
+	testing.expect(t, target != nil)
+	defer release(target)
+	queue := msg_id(device, sel_registerName("newCommandQueue"))
+	testing.expect(t, queue != nil)
+	defer release(queue)
+	command_buffer := msg_id(queue, sel_registerName("commandBuffer"))
+
+	list: draw.List
+	draw.list_init(&list)
+	defer draw.list_destroy(&list)
+	draw.solid(
+		&list,
+		{8, 8, 40, 40},
+		{0, 0, 0, 0.06},
+		0,
+		0,
+		0.5,
+		"shadow a",
+		.Max,
+		.Shadow,
+	)
+	draw.solid(
+		&list,
+		{16, 16, 40, 40},
+		{0, 0, 0, 0.06},
+		0,
+		0,
+		0.5,
+		"shadow b",
+		.Max,
+		.Shadow,
+	)
+	testing.expect(t, encode_to_drawable(
+		&renderer,
+		command_buffer,
+		target,
+		&list,
+		{64, 64},
+		1,
+		{1, 1, 1, 1},
+	))
+	msg_void(command_buffer, sel_registerName("commit"))
+	msg_void(command_buffer, sel_registerName("waitUntilCompleted"))
+
+	pixels := make([]u8, 64*64*4, context.temp_allocator)
+	defer delete(pixels, context.temp_allocator)
+	msg_void_get_bytes(
+		target,
+		sel_registerName("getBytes:bytesPerRow:fromRegion:mipmapLevel:"),
+		raw_data(pixels),
+		64*4,
+		{size = {64, 64, 1}},
+		0,
+	)
+	overlap := (32*64+32)*4
+	channel := pixels[overlap+1]
+	testing.expect(t, channel >= 232 && channel <= 248)
 }

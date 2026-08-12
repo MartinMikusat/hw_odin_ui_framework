@@ -79,7 +79,14 @@ fragment float4 ui_fragment(
     VertexOut input [[stage_in]],
     texture2d<float> texture [[texture(0)]],
     sampler texture_sampler [[sampler(0)]]) {
-    float distance = rounded_distance(input.local, input.size, input.corner_radii);
+    float2 sdf_local = input.local;
+    float2 sdf_size = input.size;
+    if (input.texture_mode == 3u) {
+        float pad = input.edge_softness;
+        sdf_local = input.local - pad;
+        sdf_size = max(input.size - 2.0 * pad, float2(0.001, 0.001));
+    }
+    float distance = rounded_distance(sdf_local, sdf_size, input.corner_radii);
     float outer_alpha = 1.0 - smoothstep(-input.edge_softness, input.edge_softness, distance);
     if (input.border_thickness > 0.0) {
         float inner_distance = distance + input.border_thickness;
@@ -89,7 +96,7 @@ fragment float4 ui_fragment(
 
     float4 tint = input.color;
     float4 result;
-    if (input.texture_mode == 0u) {
+    if (input.texture_mode == 0u || input.texture_mode == 3u) {
         result = float4(tint.rgb * tint.a, tint.a);
     } else if (input.texture_mode == 1u) {
         float mask = texture.sample(texture_sampler, input.uv).r;

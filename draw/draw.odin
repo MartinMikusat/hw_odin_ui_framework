@@ -25,6 +25,12 @@ Texture_Mode :: enum {
 	Solid,
 	Alpha_Mask,
 	Color,
+	Shadow,
+}
+
+Combine :: enum {
+	Over,
+	Max,
 }
 
 Quad_Instance :: struct {
@@ -38,12 +44,13 @@ Quad_Instance :: struct {
 }
 
 Batch_Key :: struct {
-	texture:  Texture_Handle,
-	sampler:  Sampler,
-	clip:     Rect,
-	clip_set: bool,
+	texture:   Texture_Handle,
+	sampler:   Sampler,
+	clip:      Rect,
+	clip_set:  bool,
 	transform: Transform_2D,
-	opacity:  f32,
+	opacity:   f32,
+	combine:   Combine,
 }
 
 Batch :: struct {
@@ -296,9 +303,11 @@ append_quad :: proc(
 	sampler := Sampler.Linear,
 	kind := Trace_Kind.Solid,
 	label := "",
+	combine := Combine.Over,
 ) {
 	assert(list != nil)
 	key := batch_key(list, texture, sampler)
+	key.combine = combine
 	batch_index := len(list.batches)-1
 	if batch_index < 0 || list.batches[batch_index].key != key {
 		batch := Batch{key = key}
@@ -324,6 +333,8 @@ solid :: proc(
 	border_thickness: f32 = 0,
 	edge_softness: f32 = 1,
 	label := "",
+	combine := Combine.Over,
+	mode := Texture_Mode.Solid,
 ) {
 	if rect_is_empty(rect) || color[3] <= 0 {return}
 	instance := Quad_Instance{
@@ -332,9 +343,9 @@ solid :: proc(
 		corner_radii = {corner_radius, corner_radius, corner_radius, corner_radius},
 		border_thickness = border_thickness,
 		edge_softness = edge_softness,
-		texture_mode = .Solid,
+		texture_mode = mode,
 	}
-	append_quad(list, instance, kind = .Solid, label = label)
+	append_quad(list, instance, kind = .Solid, label = label, combine = combine)
 }
 
 image :: proc(
