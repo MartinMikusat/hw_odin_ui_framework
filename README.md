@@ -26,7 +26,9 @@ ordered draw buckets. It does not copy RADDBG source code.
 - `hal_wayland` defines the canonical Hal Wayland light/dark palette, semantic
   accents, typography, application chrome geometry, responsive action-bar
   layout, and square control styles.
-- `draw` records ordered rectangles, glyphs, images, and external textures.
+- `draw` records ordered rectangles, vector paths, glyphs, images, and external
+  textures. Its path API delegates curve flattening and stroke expansion to
+  the Odin-native `vendor:nanovg` package in the active Odin toolchain.
 - `diagnostics` captures stable control snapshots, ordered render traces, and
   fixed-capacity CPU/GPU performance histories without allocating per frame.
 - `coretext` shapes text and supplies glyphs to the draw stream.
@@ -129,6 +131,24 @@ render-target coordinates before the renderer converts them to Metal scissors.
 Boxes can also provide a rectangle-dependent custom transform. Core applies it
 to the complete box subtree and projects published control bounds through the
 same transform, so drawing and hit testing stay aligned during motion.
+
+Vector paths use the same ordered stream, clip, transform, and opacity records
+as quad batches. `path_begin` starts a list-bound path; move, line, quadratic,
+cubic, arc, close, rectangle, rounded-rectangle, circle, and ellipse commands
+append contours. Solid-color fills support non-zero and even-odd rules, while
+strokes support butt, round, and square caps plus miter, round, and bevel joins.
+Non-finite input invalidates the pending path and its fill or stroke emits no
+batch. Gradients, image paints, and dashed strokes are outside this API.
+
+NanoVG flattens paths at `List.pixel_ratio` and the draw list copies the
+resulting triangles into owned path batches immediately. Convex fills encode
+directly. Compound fills use a transient `Stencil8` attachment for winding or
+parity, and strokes use the same attachment to prevent self-overdraw at joins.
+Each stencil sequence clears its written footprint before the next ordered
+batch. Caller-owned encoders must pass `stencil_available = true` only when
+their render pass has a matching `Stencil8` attachment; otherwise `encode`
+rejects a list that requires stencil. `encode_to_drawable` allocates and reuses
+the attachment automatically.
 
 `draw.Corner_Shape` selects `.Round` or `.Squircle` for a solid quad. `.Round`
 is the zero value and preserves the circular rounded-box contour. `.Squircle`

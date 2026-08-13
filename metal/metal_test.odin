@@ -8,6 +8,8 @@ import draw "ui_framework:draw"
 @(test)
 batch_uniforms_match_metal_constant_layout_test :: proc(t: ^testing.T) {
 	testing.expect_value(t, size_of(Batch_Uniforms), 48)
+	testing.expect_value(t, size_of(GPU_Path_Vertex), 16)
+	testing.expect_value(t, size_of(Path_Uniforms), 80)
 }
 
 @(test)
@@ -20,6 +22,79 @@ gpu_quad_instance_keeps_layout_and_corner_shape_test :: proc(t: ^testing.T) {
 foreign import metal_framework "system:Metal.framework"
 foreign metal_framework {
 	MTLCreateSystemDefaultDevice :: proc "c" () -> Object ---
+}
+
+@(test)
+offscreen_vector_paths_render_convex_compound_and_stroked_geometry_test :: proc(t: ^testing.T) {
+	if !load_objc() {testing.expect(t, false); return}
+	device := MTLCreateSystemDefaultDevice()
+	if device == nil {testing.expect(t, false); return}
+	renderer: Renderer
+	testing.expect(t, renderer_init(&renderer, device, allow_runtime_fallback = true))
+	defer renderer_destroy(&renderer)
+
+	descriptor := msg_id_u_u_u_bool(
+		objc_getClass("MTLTextureDescriptor"),
+		sel_registerName("texture2DDescriptorWithPixelFormat:width:height:mipmapped:"),
+		80,
+		96,
+		64,
+		false,
+	)
+	target := msg_id_id(device, sel_registerName("newTextureWithDescriptor:"), descriptor)
+	testing.expect(t, target != nil)
+	defer release(target)
+	queue := msg_id(device, sel_registerName("newCommandQueue"))
+	testing.expect(t, queue != nil)
+	defer release(queue)
+	command_buffer := msg_id(queue, sel_registerName("commandBuffer"))
+
+	list: draw.List
+	draw.list_init(&list, pixel_ratio = 2)
+	defer draw.list_destroy(&list)
+	draw.path_begin(&list)
+	draw.path_circle(&list, 16, 32, 10)
+	draw.path_fill(&list, {1, 0, 0, 1})
+	draw.path_begin(&list)
+	draw.path_circle(&list, 48, 32, 13)
+	draw.path_circle(&list, 48, 32, 6)
+	draw.path_solidity(&list, .Hole)
+	draw.path_fill(&list, {0, 1, 0, 1}, .Even_Odd)
+	draw.path_begin(&list)
+	draw.path_move_to(&list, 70, 20)
+	draw.path_line_to(&list, 90, 44)
+	draw.path_stroke(&list, {0, 0, 1, 1}, 6, cap = .Round)
+
+	testing.expect(t, encode_to_drawable(
+		&renderer,
+		command_buffer,
+		target,
+		&list,
+		{96, 64},
+		1,
+		{0, 0, 0, 1},
+	))
+	msg_void(command_buffer, sel_registerName("commit"))
+	msg_void(command_buffer, sel_registerName("waitUntilCompleted"))
+
+	pixels := make([]u8, 96*64*4, context.temp_allocator)
+	defer delete(pixels, context.temp_allocator)
+	msg_void_get_bytes(
+		target,
+		sel_registerName("getBytes:bytesPerRow:fromRegion:mipmapLevel:"),
+		raw_data(pixels),
+		96*4,
+		{size = {96, 64, 1}},
+		0,
+	)
+	circle := (32*96+16)*4
+	donut_ring := (32*96+58)*4
+	donut_hole := (32*96+48)*4
+	stroke := (32*96+80)*4
+	testing.expect(t, pixels[circle+2] >= 250 && pixels[circle+1] <= 2)
+	testing.expect(t, pixels[donut_ring+1] >= 250 && pixels[donut_ring+2] <= 2)
+	testing.expect(t, pixels[donut_hole] <= 2 && pixels[donut_hole+1] <= 2 && pixels[donut_hole+2] <= 2)
+	testing.expect(t, pixels[stroke] >= 250 && pixels[stroke+1] <= 2)
 }
 
 msg_void_get_bytes :: proc(receiver: Object, selector: Selector, bytes: rawptr, bytes_per_row: uint, region: MTL_Region, level: uint) {

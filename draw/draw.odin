@@ -59,9 +59,42 @@ Batch_Key :: struct {
 	combine:   Combine,
 }
 
+Batch_Kind :: enum {
+	Quad,
+	Path,
+}
+
+Path_Batch_Kind :: enum {
+	Convex_Fill,
+	Compound_Fill,
+	Stroke,
+}
+
+Path_Fill_Rule :: enum {
+	Non_Zero,
+	Even_Odd,
+}
+
+Path_Vertex :: struct {
+	position: [2]f32,
+	coverage: [2]f32,
+}
+
+Path_Batch :: struct {
+	kind:         Path_Batch_Kind,
+	fill_rule:    Path_Fill_Rule,
+	color:        Color,
+	stroke_mult:  f32,
+	fill:         [dynamic]Path_Vertex,
+	fringe:       [dynamic]Path_Vertex,
+	cover:        [dynamic]Path_Vertex,
+}
+
 Batch :: struct {
+	kind:      Batch_Kind,
 	key:       Batch_Key,
 	instances: [dynamic]Quad_Instance,
+	path:      Path_Batch,
 }
 
 Trace_Kind :: enum {
@@ -69,6 +102,7 @@ Trace_Kind :: enum {
 	Image,
 	Glyph,
 	Icon,
+	Path,
 	Group_Begin,
 	Group_End,
 }
@@ -89,6 +123,8 @@ List :: struct {
 	transform_stack:   [dynamic]Transform_2D,
 	opacity_stack:     [dynamic]f32,
 	clip_enabled_stack: [dynamic]bool,
+	pixel_ratio:       f32,
+	path_engine:       ^Path_Engine,
 }
 
 Bucket :: List
@@ -141,9 +177,11 @@ transform_rect_bounds :: proc(transform: Transform_2D, rect: Rect) -> Rect {
 	return {left, bottom, right-left, top-bottom}
 }
 
-list_init :: proc(list: ^List, allocator := context.allocator) {
+list_init :: proc(list: ^List, allocator := context.allocator, pixel_ratio := f32(1)) {
 	assert(list != nil)
-	list^ = List{allocator = allocator}
+	ratio := f32(1)
+	if path_value_is_finite(pixel_ratio) {ratio = max(pixel_ratio, 1)}
+	list^ = List{allocator = allocator, pixel_ratio = ratio}
 	list.batches = make([dynamic]Batch, allocator)
 	list.trace = make([dynamic]Trace_Entry, allocator)
 	list.clip_stack = make([dynamic]Rect, allocator)
@@ -158,7 +196,8 @@ list_init :: proc(list: ^List, allocator := context.allocator) {
 
 list_reset :: proc(list: ^List) {
 	if list == nil {return}
-	for &batch in list.batches {delete(batch.instances)}
+	path_engine_reset(list)
+	for &batch in list.batches {batch_destroy(&batch)}
 	clear(&list.batches)
 	clear(&list.trace)
 	clear(&list.clip_stack)
@@ -173,7 +212,8 @@ list_reset :: proc(list: ^List) {
 
 list_destroy :: proc(list: ^List) {
 	if list == nil {return}
-	for &batch in list.batches {delete(batch.instances)}
+	path_engine_destroy(list)
+	for &batch in list.batches {batch_destroy(&batch)}
 	delete(list.batches)
 	delete(list.trace)
 	delete(list.clip_stack)
@@ -183,8 +223,8 @@ list_destroy :: proc(list: ^List) {
 	list^ = {}
 }
 
-bucket_init :: proc(bucket: ^Bucket, allocator := context.allocator) {
-	list_init(bucket, allocator)
+bucket_init :: proc(bucket: ^Bucket, allocator := context.allocator, pixel_ratio := f32(1)) {
+	list_init(bucket, allocator, pixel_ratio)
 }
 
 bucket_reset :: proc(bucket: ^Bucket) {list_reset(bucket)}
@@ -206,7 +246,7 @@ append_bucket :: proc(list: ^List, bucket: ^Bucket) {
 	parent_opacity := top_opacity(list)
 	batch_map := make([]int, len(bucket.batches), list.allocator)
 	defer delete(batch_map, list.allocator)
-	for source, source_index in bucket.batches {
+	for &source, source_index in bucket.batches {
 		key := source.key
 		if source.key.clip_set {
 			key.clip = transform_rect_bounds(parent_transform, source.key.clip)
@@ -224,8 +264,14 @@ append_bucket :: proc(list: ^List, bucket: ^Bucket) {
 		key.transform = transform_compose(parent_transform, source.key.transform)
 		key.opacity *= parent_opacity
 		destination_index := len(list.batches)-1
-		if destination_index < 0 || list.batches[destination_index].key != key {
-			copy := Batch{key = key}
+		if source.kind == .Path {
+			copy := Batch{kind = .Path, key = key}
+			path_batch_copy(&copy.path, &source.path, list.allocator)
+			append(&list.batches, copy)
+			destination_index += 1
+		} else if destination_index < 0 || list.batches[destination_index].kind != .Quad ||
+		          list.batches[destination_index].key != key {
+			copy := Batch{kind = .Quad, key = key}
 			copy.instances = make(
 				[dynamic]Quad_Instance,
 				0,
@@ -235,7 +281,9 @@ append_bucket :: proc(list: ^List, bucket: ^Bucket) {
 			append(&list.batches, copy)
 			destination_index += 1
 		}
-		append(&list.batches[destination_index].instances, ..source.instances[:])
+		if source.kind == .Quad {
+			append(&list.batches[destination_index].instances, ..source.instances[:])
+		}
 		batch_map[source_index] = destination_index
 	}
 	for source in bucket.trace {
@@ -315,8 +363,8 @@ append_quad :: proc(
 	key := batch_key(list, texture, sampler)
 	key.combine = combine
 	batch_index := len(list.batches)-1
-	if batch_index < 0 || list.batches[batch_index].key != key {
-		batch := Batch{key = key}
+	if batch_index < 0 || list.batches[batch_index].kind != .Quad || list.batches[batch_index].key != key {
+		batch := Batch{kind = .Quad, key = key}
 		batch.instances = make([dynamic]Quad_Instance, 0, 64, list.allocator)
 		append(&list.batches, batch)
 		batch_index += 1

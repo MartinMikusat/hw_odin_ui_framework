@@ -1,6 +1,7 @@
 package draw
 
 import "core:testing"
+import "core:math"
 
 @(test)
 submission_order_and_adjacent_batching_test :: proc(t: ^testing.T) {
@@ -137,4 +138,54 @@ solid_max_combine_starts_a_new_batch_test :: proc(t: ^testing.T) {
 	testing.expect_value(t, list.batches[0].key.combine, Combine.Over)
 	testing.expect_value(t, list.batches[1].key.combine, Combine.Max)
 	testing.expect_value(t, list.batches[1].instances[0].texture_mode, Texture_Mode.Shadow)
+}
+
+@(test)
+paths_preserve_submission_order_between_quad_batches_test :: proc(t: ^testing.T) {
+	list: List
+	list_init(&list, pixel_ratio = 2)
+	defer list_destroy(&list)
+	solid(&list, {0, 0, 20, 20}, {1, 1, 1, 1}, label = "before")
+	path_begin(&list)
+	path_move_to(&list, 2, 2)
+	path_line_to(&list, 18, 18)
+	path_stroke(&list, {1, 0, 0, 1}, 2, cap = .Round, label = "path")
+	solid(&list, {20, 0, 20, 20}, {1, 1, 1, 1}, label = "after")
+
+	testing.expect_value(t, len(list.batches), 3)
+	testing.expect_value(t, list.batches[0].kind, Batch_Kind.Quad)
+	testing.expect_value(t, list.batches[1].kind, Batch_Kind.Path)
+	testing.expect_value(t, list.batches[1].path.kind, Path_Batch_Kind.Stroke)
+	testing.expect(t, len(list.batches[1].path.fill) > 0)
+	testing.expect_value(t, list.batches[2].kind, Batch_Kind.Quad)
+	testing.expect_value(t, list.trace[1].label, "path")
+}
+
+@(test)
+compound_fill_records_the_requested_fill_rule_test :: proc(t: ^testing.T) {
+	list: List
+	list_init(&list)
+	defer list_destroy(&list)
+	path_begin(&list)
+	path_circle(&list, 20, 20, 18)
+	path_circle(&list, 20, 20, 8)
+	path_solidity(&list, .Hole)
+	path_fill(&list, {0, 0.5, 1, 1}, .Even_Odd)
+
+	testing.expect_value(t, len(list.batches), 1)
+	testing.expect_value(t, list.batches[0].path.kind, Path_Batch_Kind.Compound_Fill)
+	testing.expect_value(t, list.batches[0].path.fill_rule, Path_Fill_Rule.Even_Odd)
+	testing.expect(t, len(list.batches[0].path.cover) == 6)
+}
+
+@(test)
+non_finite_path_input_discards_the_pending_draw_test :: proc(t: ^testing.T) {
+	list: List
+	list_init(&list)
+	defer list_destroy(&list)
+	path_begin(&list)
+	path_move_to(&list, 0, 0)
+	path_line_to(&list, math.INF_F32, 10)
+	path_stroke(&list, {1, 1, 1, 1}, 2)
+	testing.expect_value(t, len(list.batches), 0)
 }

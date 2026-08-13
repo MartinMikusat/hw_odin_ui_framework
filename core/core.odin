@@ -669,7 +669,7 @@ begin_frame :: proc(
 	clear(&ui.events)
 	frame.seen_keys = make(map[Key]bool, allocator)
 	frame.seen_actions = make(map[Action_ID]bool, allocator)
-	draw.list_init(&frame.draw_list, allocator)
+	draw.list_init(&frame.draw_list, allocator, input.backing_scale)
 	root := Box{
 		key = key_from_string("framework root"),
 		parent = -1,

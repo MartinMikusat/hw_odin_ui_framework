@@ -127,3 +127,57 @@ fragment float4 ui_fragment(
     }
     return result * outer_alpha;
 }
+
+struct PathVertex {
+    float2 position;
+    float2 coverage;
+};
+
+struct PathUniforms {
+    float2 viewport;
+    float opacity;
+    float padding;
+    float4 transform;
+    float2 translation;
+    float2 transform_tail;
+    float4 color;
+    float stroke_mult;
+    float stroke_threshold;
+    float2 tail;
+};
+
+struct PathVertexOut {
+    float4 position [[position]];
+    float2 coverage;
+};
+
+vertex PathVertexOut path_vertex(
+    uint vertex_id [[vertex_id]],
+    const device PathVertex *vertices [[buffer(0)]],
+    constant PathUniforms &uniforms [[buffer(1)]]) {
+    PathVertex path_input = vertices[vertex_id];
+    float2 point = float2(
+        uniforms.transform.x * path_input.position.x + uniforms.transform.z * path_input.position.y,
+        uniforms.transform.y * path_input.position.x + uniforms.transform.w * path_input.position.y
+    ) + uniforms.translation;
+    float2 ndc = point / uniforms.viewport * 2.0 - 1.0;
+    PathVertexOut output;
+    output.position = float4(ndc, 0, 1);
+    output.coverage = path_input.coverage;
+    return output;
+}
+
+fragment float4 path_fragment(
+    PathVertexOut input [[stage_in]],
+    constant PathUniforms &uniforms [[buffer(1)]]) {
+    float edge = min(
+        1.0,
+        (1.0 - abs(input.coverage.x * 2.0 - 1.0)) * uniforms.stroke_mult
+    );
+    float coverage = min(1.0, edge) * min(1.0, input.coverage.y);
+    if (uniforms.stroke_threshold >= 0.0 && coverage < uniforms.stroke_threshold) {
+        discard_fragment();
+    }
+    float alpha = uniforms.color.a * uniforms.opacity * coverage;
+    return float4(uniforms.color.rgb * alpha, alpha);
+}
