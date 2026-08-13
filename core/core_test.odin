@@ -335,7 +335,7 @@ input_root_blocks_background_controls_and_allows_explicit_passthrough_test :: pr
 	_ = box_add(&frame, Box{
 		key = key_from_string("window control"),
 		layout = {position = .Absolute, absolute = {80, 80, 20, 20}},
-		flags = {.Interactive, .Input_Passthrough},
+		flags = {.Interactive, .Click_To_Focus, .Input_Passthrough},
 		control = {action = window_action, capabilities = {.Primary_Press}},
 	})
 	_ = box_begin(&frame, Box{
@@ -718,4 +718,212 @@ scroll_target_helpers_clamp_and_reveal_items_in_view_coordinates_test :: proc(
 		scroll_make_visible(&ctx, key, {0, -20, 80, 20}, 10),
 		Vec2{0, 130},
 	)
+}
+
+surface_stack_test_frame :: proc(ctx: ^Context, parent_open, child_open: bool) -> Frame {
+	frame := begin_frame(ctx, {viewport = {0, 0, 200, 120}})
+	base_action := action_id_from_string("surface base action")
+	register_action(&frame, {id = base_action, functional_name = "surface base", enabled = true})
+	_ = box_add(&frame, Box{
+		key = key_from_string("surface base control"),
+		layout = {position = .Absolute, absolute = {10, 10, 40, 20}},
+		flags = {.Interactive, .Click_To_Focus},
+		control = {action = base_action, capabilities = {.Primary_Press, .Direct_Keyboard}},
+	})
+	window_action := action_id_from_string("surface window action")
+	register_action(&frame, {id = window_action, functional_name = "surface window", enabled = true})
+	_ = box_add(&frame, Box{
+		key = key_from_string("surface window control"),
+		layout = {position = .Absolute, absolute = {170, 100, 20, 20}},
+		flags = {.Interactive, .Input_Passthrough},
+		control = {action = window_action, capabilities = {.Primary_Press}},
+	})
+	if !parent_open {return frame}
+
+	_ = box_begin(&frame, Box{
+		key = key_from_string("parent surface"),
+		debug_label = "parent surface",
+		layout = {width = percent(1), height = percent(1), flow = .Overlay},
+		style = {background = {0, 0, 0, 0.4}, opacity = 1},
+		flags = {.Draw_Background, .Interactive, .Modal_Root, .Surface_Dismiss},
+		control = {capabilities = {.Primary_Press}},
+	})
+	parent_action := action_id_from_string("parent surface action")
+	register_action(&frame, {id = parent_action, functional_name = "parent surface button", enabled = true})
+	_ = box_add(&frame, Box{
+		key = key_from_string("parent surface button"),
+		debug_label = "parent surface button",
+		layout = {position = .Absolute, absolute = {70, 50, 60, 20}},
+		flags = {.Interactive, .Click_To_Focus},
+		control = {action = parent_action, capabilities = {.Primary_Press, .Direct_Keyboard}},
+	})
+	if child_open {
+		_ = box_begin(&frame, Box{
+			key = key_from_string("child surface"),
+			debug_label = "child surface",
+			layout = {width = percent(1), height = percent(1), flow = .Overlay},
+			style = {background = {0, 0, 0, 0.4}, opacity = 1},
+			flags = {.Draw_Background, .Interactive, .Modal_Root, .Surface_Dismiss},
+			control = {capabilities = {.Primary_Press}},
+		})
+		child_action := action_id_from_string("child surface action")
+		register_action(&frame, {id = child_action, functional_name = "child surface button", enabled = true})
+		_ = box_add(&frame, Box{
+			key = key_from_string("child surface button"),
+			debug_label = "child surface button",
+			layout = {position = .Absolute, absolute = {80, 50, 60, 20}},
+			flags = {.Interactive, .Click_To_Focus},
+			control = {action = child_action, capabilities = {.Primary_Press, .Direct_Keyboard}},
+		})
+		box_end(&frame)
+	}
+	box_end(&frame)
+	return frame
+}
+
+@(test)
+nested_surfaces_render_in_stack_order_and_publish_only_the_top_surface_test :: proc(t: ^testing.T) {
+	ctx: Context
+	context_init(&ctx)
+	defer context_destroy(&ctx)
+	frame := surface_stack_test_frame(&ctx, true, true)
+	defer frame_destroy(&frame)
+	output := end_frame(&frame)
+	testing.expect_value(t, len(frame.surfaces), 3)
+	testing.expect_value(t, frame.surfaces[2].parent, 1)
+	testing.expect_value(t, frame.boxes[frame.surfaces[2].root_box].parent, 0)
+	testing.expect_value(t, output.active_surface, key_from_string("child surface"))
+	testing.expect_value(t, output.dismiss_control, key_from_string("child surface"))
+	testing.expect_value(t, len(output.controls), 3)
+	testing.expect_value(t, output.controls[0].id, key_from_string("surface window control"))
+	testing.expect_value(t, output.controls[1].id, key_from_string("child surface"))
+	testing.expect_value(t, output.controls[2].id, key_from_string("child surface button"))
+	window_point := Vec2{175, 105}
+	frame_hit := frame_hit_test(&frame, window_point, .Primary_Press)
+	registry_hit := hit_test_records(output.controls, window_point)
+	hover_hit := frame_hover_test(&frame, window_point)
+	testing.expect(t, frame_hit != nil && frame_hit.id == key_from_string("surface window control"))
+	testing.expect(t, registry_hit != nil && registry_hit.id == key_from_string("surface window control"))
+	testing.expect(t, hover_hit != nil && hover_hit.id == key_from_string("surface window control"))
+	testing.expect(t, find_action(output.actions, action_id_from_string("surface base action")) == nil)
+	testing.expect(t, find_action(output.actions, action_id_from_string("parent surface action")) == nil)
+	testing.expect(t, find_action(output.actions, action_id_from_string("surface window action")) != nil)
+	testing.expect(t, find_action(output.actions, action_id_from_string("child surface action")) != nil)
+	base_index := trace_label_index(output.draw_list.trace[:], "parent surface")
+	child_index := trace_label_index(output.draw_list.trace[:], "child surface")
+	testing.expect(t, base_index >= 0)
+	testing.expect(t, child_index > base_index)
+}
+
+@(test)
+surface_focus_restores_across_nesting_and_dismiss_targets_only_the_top_test :: proc(t: ^testing.T) {
+	ctx: Context
+	context_init(&ctx)
+	defer context_destroy(&ctx)
+	frame := surface_stack_test_frame(&ctx, false, false)
+	output := end_frame(&frame)
+	publish(&ctx, output)
+	frame_destroy(&frame)
+	testing.expect(t, focus_set(&ctx, key_from_string("surface base control")))
+
+	frame = surface_stack_test_frame(&ctx, true, false)
+	output = end_frame(&frame)
+	publish(&ctx, output)
+	frame_destroy(&frame)
+	testing.expect_value(t, ctx.focused, key_from_string("parent surface button"))
+
+	frame = surface_stack_test_frame(&ctx, true, true)
+	output = end_frame(&frame)
+	publish(&ctx, output)
+	frame_destroy(&frame)
+	testing.expect_value(t, ctx.focused, key_from_string("child surface button"))
+	queue_event(&ctx, {kind = .Dismiss_Request})
+	frame = begin_frame(&ctx, {viewport = {0, 0, 200, 120}})
+	child_signal := signal_for_key(frame.signals[:], key_from_string("child surface"))
+	parent_signal := signal_for_key(frame.signals[:], key_from_string("parent surface"))
+	testing.expect(t, .Dismiss_Requested in child_signal.flags)
+	testing.expect(t, .Dismiss_Requested not_in parent_signal.flags)
+	frame_destroy(&frame)
+
+	frame = surface_stack_test_frame(&ctx, true, false)
+	output = end_frame(&frame)
+	publish(&ctx, output)
+	frame_destroy(&frame)
+	testing.expect_value(t, ctx.focused, key_from_string("parent surface button"))
+	frame = surface_stack_test_frame(&ctx, false, false)
+	output = end_frame(&frame)
+	publish(&ctx, output)
+	frame_destroy(&frame)
+	testing.expect_value(t, ctx.focused, key_from_string("surface base control"))
+}
+
+@(test)
+surface_focus_preserves_an_empty_capture_and_rejects_passthrough_focus_test :: proc(t: ^testing.T) {
+	ctx: Context
+	context_init(&ctx)
+	defer context_destroy(&ctx)
+	frame := surface_stack_test_frame(&ctx, false, false)
+	output := end_frame(&frame)
+	publish(&ctx, output)
+	frame_destroy(&frame)
+	testing.expect_value(t, ctx.focused, Key(0))
+
+	frame = surface_stack_test_frame(&ctx, true, false)
+	output = end_frame(&frame)
+	publish(&ctx, output)
+	frame_destroy(&frame)
+	testing.expect_value(t, ctx.focused, key_from_string("parent surface button"))
+	testing.expect(t, !focus_set(&ctx, key_from_string("surface window control")))
+
+	frame = surface_stack_test_frame(&ctx, false, false)
+	output = end_frame(&frame)
+	publish(&ctx, output)
+	frame_destroy(&frame)
+	testing.expect_value(t, ctx.focused, Key(0))
+	testing.expect(t, focus_set(&ctx, key_from_string("surface base control")))
+	focus_clear(&ctx)
+	frame = surface_stack_test_frame(&ctx, false, false)
+	output = end_frame(&frame)
+	publish(&ctx, output)
+	frame_destroy(&frame)
+	testing.expect_value(t, ctx.focused, Key(0))
+}
+
+@(test)
+pointer_release_requires_the_captured_control_to_remain_topmost_test :: proc(t: ^testing.T) {
+	ctx: Context
+	context_init(&ctx)
+	defer context_destroy(&ctx)
+	frame := surface_stack_test_frame(&ctx, true, true)
+	output := end_frame(&frame)
+	publish(&ctx, output)
+	frame_destroy(&frame)
+
+	queue_event(&ctx, {
+		kind = .Pointer_Press,
+		button = .Primary,
+		point = {20, 20},
+		timestamp_us = 1_000,
+	})
+	frame = surface_stack_test_frame(&ctx, true, true)
+	backdrop := signal_for_key(frame.signals[:], key_from_string("child surface"))
+	testing.expect(t, .Pressed in backdrop.flags)
+	output = end_frame(&frame)
+	publish(&ctx, output)
+	frame_destroy(&frame)
+
+	queue_event(&ctx, {
+		kind = .Pointer_Release,
+		button = .Primary,
+		point = {90, 60},
+		timestamp_us = 2_000,
+	})
+	frame = surface_stack_test_frame(&ctx, true, true)
+	backdrop = signal_for_key(frame.signals[:], key_from_string("child surface"))
+	button := signal_for_key(frame.signals[:], key_from_string("child surface button"))
+	testing.expect(t, .Released in backdrop.flags)
+	testing.expect(t, .Clicked not_in backdrop.flags)
+	testing.expect(t, .Clicked not_in button.flags)
+	_ = end_frame(&frame)
+	frame_destroy(&frame)
 }

@@ -33,22 +33,29 @@ frame_control :: proc(frame: ^Frame, key: Key) -> ^Control_Record {
 	return nil
 }
 
+control_has_hit_priority :: proc(candidate, current: ^Control_Record) -> bool {
+	if candidate == nil {return false}
+	if current == nil {return true}
+	if candidate.input_passthrough != current.input_passthrough {
+		return candidate.input_passthrough
+	}
+	return candidate.layer > current.layer
+}
+
 frame_hit_test :: proc(
 	frame: ^Frame,
 	point: Vec2,
 	capability: Control_Capability,
 ) -> ^Control_Record {
 	best: ^Control_Record
-	best_layer := Layer.Base
 	for index := len(frame.controls)-1; index >= 0; index -= 1 {
 		control := &frame.controls[index]
 		if !control.enabled || capability not_in control.capabilities ||
 		   !control_contains(control, point) {
 			continue
 		}
-		if best == nil || control.layer > best_layer {
+		if control_has_hit_priority(control, best) {
 			best = control
-			best_layer = control.layer
 		}
 	}
 	return best
@@ -56,7 +63,6 @@ frame_hit_test :: proc(
 
 frame_hover_test :: proc(frame: ^Frame, point: Vec2) -> ^Control_Record {
 	best: ^Control_Record
-	best_layer := Layer.Base
 	for index := len(frame.controls)-1; index >= 0; index -= 1 {
 		control := &frame.controls[index]
 		interactive := .Hover in control.capabilities ||
@@ -67,9 +73,8 @@ frame_hover_test :: proc(frame: ^Frame, point: Vec2) -> ^Control_Record {
 		if !control.enabled || !interactive || !control_contains(control, point) {
 			continue
 		}
-		if best == nil || control.layer > best_layer {
+		if control_has_hit_priority(control, best) {
 			best = control
-			best_layer = control.layer
 		}
 	}
 	return best
@@ -192,7 +197,11 @@ process_events :: proc(frame: ^Frame, finalize_states := true) {
 			ui.hot = control.id
 			ui.active[button] = control.id
 			ui.drag_start = event.point
-			if control.focusable {ui.focused = control.id}
+			if control.focusable &&
+			   (ui.published.active_surface == Key(0) ||
+			    control.surface == ui.published.active_surface) {
+				ui.focused = control.id
+			}
 			signal_add(frame, {
 				control = control.id,
 				action = control.action,
@@ -209,7 +218,10 @@ process_events :: proc(frame: ^Frame, finalize_states := true) {
 			control := frame_control(frame, key)
 			if control == nil {ui.active[button] = Key(0); continue}
 			flags := Signal_Flags{.Released}
-			if control_contains(control, event.point) {flags += {.Clicked}}
+			capability := Control_Capability.Primary_Press
+			if event.button == .Secondary {capability = .Secondary_Press}
+			release_control := frame_hit_test(frame, event.point, capability)
+			if release_control != nil && release_control.id == key {flags += {.Clicked}}
 			signal_add(frame, {
 				control = key,
 				action = control.action,
@@ -254,6 +266,37 @@ process_events :: proc(frame: ^Frame, finalize_states := true) {
 				control = control.id,
 				action = control.action,
 				flags = {.Keyboard_Released, .Focused},
+				modifiers = event.modifiers,
+				key = event.key,
+			})
+			event.consumed = true
+		case .Dismiss_Request:
+			control := frame_control(frame, ui.published.dismiss_control)
+			if control == nil {continue}
+			signal_add(frame, {
+				control = control.id,
+				action = control.action,
+				flags = {.Dismiss_Requested},
+				modifiers = event.modifiers,
+			})
+			event.consumed = true
+		case .Focus_Next, .Focus_Previous:
+			direction := Navigation_Direction.Next
+			if event.kind == .Focus_Previous {direction = .Previous}
+			_, moved := focus_move_on_surface(ui, direction, ui.published.active_surface)
+			if moved {request_frame(ui, .State)}
+			event.consumed = true
+		case .Activate_Focused:
+			control := frame_control(frame, ui.focused)
+			if control == nil || !control.enabled ||
+			   control.surface != ui.published.active_surface ||
+			   .Direct_Keyboard not_in control.capabilities {
+				continue
+			}
+			signal_add(frame, {
+				control = control.id,
+				action = control.action,
+				flags = {.Keyboard_Pressed, .Clicked, .Focused},
 				modifiers = event.modifiers,
 				key = event.key,
 			})

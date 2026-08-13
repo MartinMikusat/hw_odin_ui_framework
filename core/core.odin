@@ -121,6 +121,7 @@ Box_Flag :: enum {
 	Draw_Image,
 	Interactive,
 	Modal_Root,
+	Surface_Dismiss,
 	Input_Root,
 	Input_Passthrough,
 	Scroll,
@@ -218,6 +219,8 @@ Control_Record :: struct {
 	layer:               Layer,
 	focusable:           bool,
 	focus_root:          Key,
+	surface:             Key,
+	input_passthrough:   bool,
 	enabled:             bool,
 }
 
@@ -270,6 +273,10 @@ Event_Kind :: enum {
 	Scroll,
 	Key_Press,
 	Key_Release,
+	Dismiss_Request,
+	Focus_Next,
+	Focus_Previous,
+	Activate_Focused,
 	Text,
 	File_Drop,
 }
@@ -299,6 +306,7 @@ Signal_Flag :: enum {
 	Keyboard_Pressed,
 	Keyboard_Released,
 	Text_Input,
+	Dismiss_Requested,
 	Focused,
 }
 
@@ -419,7 +427,16 @@ Box :: struct {
 	rect:         draw.Rect,
 	clipped_rect: draw.Rect,
 	layer:        Layer,
+	surface:      int,
 	overflow:     Vec2,
+}
+
+Surface_Record :: struct {
+	key:             Key,
+	parent:          int,
+	root_box:        int,
+	input_root:      int,
+	dismiss_control: Key,
 }
 
 Frame_Input :: struct {
@@ -436,6 +453,8 @@ Frame_Output :: struct {
 	signals:   []Signal,
 	events:    []Event,
 	frame:     u64,
+	active_surface:  Key,
+	dismiss_control: Key,
 }
 
 Frame_Request_Reason :: enum {
@@ -454,17 +473,21 @@ Published_Frame :: struct {
 	controls: [dynamic]Control_Record,
 	signals:  [dynamic]Signal,
 	frame:    u64,
+	active_surface:  Key,
+	dismiss_control: Key,
 }
 
 Context :: struct {
 	allocator: mem.Allocator,
 	states:    map[Key]Persistent_State,
 	animations: map[Key]Animation,
+	surface_focus: map[Key]Key,
 	events:    [dynamic]Event,
 	published: Published_Frame,
 	hot:       Key,
 	active:    [3]Key,
 	focused:   Key,
+	active_surface: Key,
 	press_keys: [3][3]Key,
 	press_times_us: [3][3]u64,
 	press_points: [3][3]Vec2,
@@ -486,13 +509,15 @@ Frame :: struct {
 	next_declarations: Declarations,
 	has_next_declarations: bool,
 	actions:       [dynamic]Action_Record,
+	action_surfaces: [dynamic]int,
 	controls:      [dynamic]Control_Record,
 	signals:       [dynamic]Signal,
 	events:        [dynamic]Event,
 	draw_list:     draw.List,
 	seen_keys:     map[Key]bool,
 	seen_actions:  map[Action_ID]bool,
-	input_root:    int,
+	surfaces:      [dynamic]Surface_Record,
+	surface_stack: [dynamic]int,
 }
 
 key_from_string :: proc(value: string) -> Key {
@@ -532,6 +557,7 @@ context_init :: proc(ui: ^Context, allocator := context.allocator) {
 	ui^ = Context{allocator = allocator}
 	ui.states = make(map[Key]Persistent_State, allocator)
 	ui.animations = make(map[Key]Animation, allocator)
+	ui.surface_focus = make(map[Key]Key, allocator)
 	ui.events = make([dynamic]Event, allocator)
 	ui.published.actions = make([dynamic]Action_Record, allocator)
 	ui.published.controls = make([dynamic]Control_Record, allocator)
@@ -567,6 +593,7 @@ context_destroy :: proc(ui: ^Context) {
 	delete(ui.events)
 	delete(ui.states)
 	delete(ui.animations)
+	delete(ui.surface_focus)
 	ui^ = {}
 }
 
@@ -622,15 +649,17 @@ begin_frame :: proc(
 		allocator = allocator,
 		input = input,
 		text_backend = text_backend,
-		input_root = -1,
 	}
 	frame.boxes = make([dynamic]Box, 0, 256, allocator)
 	frame.parent_stack = make([dynamic]int, 0, 32, allocator)
 	frame.declaration_stack = make([dynamic]Declarations, 0, 16, allocator)
 	frame.actions = make([dynamic]Action_Record, 0, 128, allocator)
+	frame.action_surfaces = make([dynamic]int, 0, 128, allocator)
 	frame.controls = make([dynamic]Control_Record, 0, 128, allocator)
 	frame.signals = make([dynamic]Signal, 0, 64, allocator)
 	frame.events = make([dynamic]Event, 0, len(ui.events), allocator)
+	frame.surfaces = make([dynamic]Surface_Record, 0, 8, allocator)
+	frame.surface_stack = make([dynamic]int, 0, 8, allocator)
 	for event in ui.events {
 		copy := event
 		copy.text = strings.clone(event.text, allocator)
@@ -657,6 +686,13 @@ begin_frame :: proc(
 		rect = input.viewport,
 	}
 	append(&frame.boxes, root)
+	append(&frame.surfaces, Surface_Record{
+		key = root.key,
+		parent = -1,
+		root_box = 0,
+		input_root = -1,
+	})
+	append(&frame.surface_stack, 0)
 	append(&frame.parent_stack, 0)
 	append(&frame.declaration_stack, Declarations{style = default_style()})
 	frame.seen_keys[root.key] = true
@@ -675,10 +711,13 @@ frame_destroy :: proc(frame: ^Frame) {
 	delete(frame.parent_stack)
 	delete(frame.declaration_stack)
 	delete(frame.actions)
+	delete(frame.action_surfaces)
 	delete(frame.controls)
 	delete(frame.signals)
 	for &event in frame.events {delete(event.text, frame.allocator)}
 	delete(frame.events)
+	delete(frame.surfaces)
+	delete(frame.surface_stack)
 	delete(frame.seen_keys)
 	delete(frame.seen_actions)
 	frame^ = {}
@@ -706,6 +745,7 @@ register_action :: proc(frame: ^Frame, action: Action_Record) {
 	assert(!frame.seen_actions[action.id], "duplicate action identifier")
 	frame.seen_actions[action.id] = true
 	append(&frame.actions, action)
+	append(&frame.action_surfaces, frame.surface_stack[len(frame.surface_stack)-1])
 }
 
 find_action :: proc(actions: []Action_Record, id: Action_ID) -> ^Action_Record {
@@ -718,19 +758,35 @@ append_box :: proc(frame: ^Frame, box: Box) -> int {
 	assert(box.key != Key(0))
 	assert(!frame.seen_keys[box.key], "duplicate visible box key")
 	frame.seen_keys[box.key] = true
-	parent := frame.parent_stack[len(frame.parent_stack)-1]
+	logical_parent := frame.parent_stack[len(frame.parent_stack)-1]
+	parent := logical_parent
+	current_surface := frame.surface_stack[len(frame.surface_stack)-1]
 	next := box
+	if .Modal_Root in next.flags {
+		parent = 0
+		next.flags += {.Focus_Root, .Input_Root}
+	}
 	next.parent = parent
 	if next.layer == .Base && frame.boxes[parent].layer != .Base {
 		next.layer = frame.boxes[parent].layer
 	}
-	if .Modal_Root in next.flags {next.layer = .Modal}
 	if .Clip in next.flags {next.style.clip = true}
 	next.first_child = -1
 	next.last_child = -1
 	next.next_sibling = -1
 	if next.style.opacity == 0 {next.style.opacity = 1}
 	index := len(frame.boxes)
+	if .Modal_Root in next.flags {
+		next.surface = len(frame.surfaces)
+		append(&frame.surfaces, Surface_Record{
+			key = next.key,
+			parent = current_surface,
+			root_box = index,
+			input_root = index,
+		})
+	} else {
+		next.surface = current_surface
+	}
 	append(&frame.boxes, next)
 	if frame.boxes[parent].first_child < 0 {
 		frame.boxes[parent].first_child = index
@@ -739,11 +795,22 @@ append_box :: proc(frame: ^Frame, box: Box) -> int {
 	}
 	frame.boxes[parent].last_child = index
 	touch_state(frame, next.key)
-	if .Modal_Root in next.flags || .Input_Root in next.flags {
-		if frame.input_root < 0 ||
-		   next.layer >= frame.boxes[frame.input_root].layer {
-			frame.input_root = index
+	surface := &frame.surfaces[next.surface]
+	if .Input_Root in next.flags {
+		candidate_layer := next.layer
+		if next.surface > 0 && candidate_layer == .Modal {candidate_layer = .Base}
+		current_layer := Layer.Base
+		if surface.input_root >= 0 {
+			current_layer = frame.boxes[surface.input_root].layer
+			if next.surface > 0 && current_layer == .Modal {current_layer = .Base}
 		}
+		if surface.input_root < 0 || candidate_layer >= current_layer {
+			surface.input_root = index
+		}
+	}
+	if .Surface_Dismiss in next.flags {
+		assert(surface.dismiss_control == Key(0), "duplicate surface dismiss control")
+		surface.dismiss_control = next.key
 	}
 	return index
 }
@@ -751,21 +818,37 @@ append_box :: proc(frame: ^Frame, box: Box) -> int {
 box_begin :: proc(frame: ^Frame, box: Box) -> int {
 	index := append_box(frame, box)
 	append(&frame.parent_stack, index)
+	if .Modal_Root in frame.boxes[index].flags {
+		append(&frame.surface_stack, frame.boxes[index].surface)
+	}
 	return index
 }
 
 box_end :: proc(frame: ^Frame) {
 	assert(len(frame.parent_stack) > 1)
+	index := frame.parent_stack[len(frame.parent_stack)-1]
+	if .Modal_Root in frame.boxes[index].flags {
+		assert(len(frame.surface_stack) > 1)
+		resize(&frame.surface_stack, len(frame.surface_stack)-1)
+	}
 	resize(&frame.parent_stack, len(frame.parent_stack)-1)
 }
 
 box_add :: proc(frame: ^Frame, box: Box) -> int {
+	assert(.Modal_Root not_in box.flags, "a modal root must use box_begin")
 	return append_box(frame, box)
 }
 
 publish :: proc(ui: ^Context, output: Frame_Output) {
 	assert(ui != nil)
-	publish_records(ui, output.actions, output.controls, output.frame)
+	publish_records(
+		ui,
+		output.actions,
+		output.controls,
+		output.frame,
+		output.active_surface,
+		output.dismiss_control,
+	)
 	for signal in output.signals {
 		copy := signal
 		copy.text = strings.clone(signal.text, ui.allocator)

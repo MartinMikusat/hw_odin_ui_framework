@@ -100,12 +100,25 @@ emit visible rows plus spacers that preserve the complete scroll extent.
 Scoped declarations provide layout, style, flag, and layer defaults. A next-box
 declaration applies once. Widgets and application boxes use the same keyed tree.
 
-Base, popup, tooltip, modal, and debug layers render in a fixed order. An input
-root restricts control and associated action publication to one subtree, so
-pointer, numbered, accessibility, flash, command-menu, and CLI adapters resolve
-the same active surface. Command-only actions remain published. Explicit
-pass-through controls can keep window operations available while a modal owns
-application input.
+Each logical UI surface owns base, popup, tooltip, and legacy modal strata. The
+framework renders the base surface first, then each modal surface in stack
+order, and emits the debug stratum once above the complete stack. A modal root
+starts a surface, records its parent surface, and attaches its layout root to
+the viewport root. Nested modal geometry therefore does not inherit the parent
+panel's transform or clip.
+
+Only the top surface publishes ordinary controls and actions. An input root can
+restrict publication further within that surface. Explicit pass-through
+controls keep window operations available without exposing the covered
+application surface. Pointer, keyboard, text, numbered, accessibility, flash,
+command-menu, and CLI adapters all consume the same published registry.
+
+Opening a surface captures the previous surface's focus and focuses its first
+enabled focusable control. Closing it restores the captured focus. Focus-next,
+focus-previous, activate-focused, and dismiss-request events operate on the top
+surface only. A surface dismiss control converts Escape or a backdrop click
+into a signal for that surface; nested dismissal leaves every parent surface
+mounted and inactive until it becomes topmost again.
 
 The draw stream preserves submission order. The renderer combines adjacent
 compatible instances only. It does not sort rectangles, text, or textures.

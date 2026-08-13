@@ -23,6 +23,10 @@ focus_set :: proc(ui: ^Context, key: Key) -> bool {
 	if ui == nil {return false}
 	for &control in ui.published.controls {
 		if control.id != key || !control.enabled || !control.focusable {continue}
+		if ui.published.active_surface != Key(0) &&
+		   control.surface != ui.published.active_surface {
+			continue
+		}
 		ui.focused = key
 		return true
 	}
@@ -97,5 +101,33 @@ focus_move :: proc(
 	}
 	if best < 0 {return ui.focused, false}
 	ui.focused = candidates[best].id
+	return ui.focused, true
+}
+
+focus_move_on_surface :: proc(
+	ui: ^Context,
+	direction: Navigation_Direction,
+	surface: Key,
+	allocator: mem.Allocator = {},
+) -> (Key, bool) {
+	if ui == nil || surface == Key(0) {return Key(0), false}
+	use_allocator := allocator
+	if use_allocator.procedure == nil {use_allocator = ui.allocator}
+	candidates := make([dynamic]^Control_Record, use_allocator)
+	defer delete(candidates)
+	for &control in ui.published.controls {
+		if control.surface != surface || !control.enabled || !control.focusable {continue}
+		append(&candidates, &control)
+	}
+	if len(candidates) == 0 {return Key(0), false}
+	current_index := -1
+	for candidate, index in candidates {
+		if candidate.id == ui.focused {current_index = index; break}
+	}
+	delta := 1
+	if direction == .Previous {delta = -1}
+	next := 0
+	if current_index >= 0 {next = (current_index+delta+len(candidates))%len(candidates)}
+	ui.focused = candidates[next].id
 	return ui.focused, true
 }

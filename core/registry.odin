@@ -185,14 +185,12 @@ hit_test_records :: proc(
 	capability := Control_Capability.Primary_Press,
 ) -> ^Control_Record {
 	best: ^Control_Record
-	best_layer := Layer.Base
 	for index := len(controls)-1; index >= 0; index -= 1 {
 		control := &controls[index]
 		if !control.enabled || capability not_in control.capabilities ||
 		   !control_contains(control, point) {continue}
-		if best == nil || control.layer > best_layer {
+		if control_has_hit_priority(control, best) {
 			best = control
-			best_layer = control.layer
 		}
 	}
 	return best
@@ -298,8 +296,15 @@ publish_records :: proc(
 	actions: []Action_Record,
 	controls: []Control_Record,
 	frame: u64,
+	active_surface: Key = Key(0),
+	dismiss_control: Key = Key(0),
 ) {
 	assert(ui != nil)
+	previous_surface := ui.published.active_surface
+	previous_focus := ui.focused
+	if previous_surface != Key(0) && previous_surface != active_surface {
+		ui.surface_focus[previous_surface] = previous_focus
+	}
 	clear_published(ui)
 	for action in actions {
 		copy := action
@@ -316,6 +321,50 @@ publish_records :: proc(
 		append(&ui.published.controls, copy)
 	}
 	ui.published.frame = frame
+	ui.published.active_surface = active_surface
+	ui.published.dismiss_control = dismiss_control
+	ui.active_surface = active_surface
+	if active_surface == Key(0) {return}
+
+	focus_is_valid := false
+	for &control in ui.published.controls {
+		if control.id == ui.focused && control.surface == active_surface &&
+		   control.enabled && control.focusable {
+			focus_is_valid = true
+			break
+		}
+	}
+	if previous_surface == active_surface {
+		if previous_focus != Key(0) && !focus_is_valid {ui.focused = Key(0)}
+		if ui.focused != previous_focus {request_frame(ui, .State)}
+		return
+	}
+
+	if previous_surface != active_surface {
+		next_focus := Key(0)
+		saved, has_saved := ui.surface_focus[active_surface]
+		restored := has_saved && saved == Key(0)
+		if has_saved && saved != Key(0) {
+			for &control in ui.published.controls {
+				if control.id == saved && control.surface == active_surface &&
+				   control.enabled && control.focusable {
+					next_focus = saved
+					restored = true
+					break
+				}
+			}
+		}
+		if !restored && previous_surface != Key(0) {
+			for &control in ui.published.controls {
+				if control.surface == active_surface && control.enabled && control.focusable {
+					next_focus = control.id
+					break
+				}
+			}
+		}
+		ui.focused = next_focus
+	}
+	if ui.focused != previous_focus {request_frame(ui, .State)}
 }
 
 registry_publish :: proc(ui: ^Context, registry: ^Registry_Builder) {
