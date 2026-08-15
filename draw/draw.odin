@@ -39,6 +39,7 @@ Combine :: enum {
 Corner_Shape :: enum {
 	Round,
 	Squircle,
+	Squircle_Pill,
 }
 
 Quad_Instance :: struct {

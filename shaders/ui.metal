@@ -86,17 +86,22 @@ float rounded_distance(float2 local, float2 size, float4 radii, uint corner_shap
     float2 q = abs(centered) - size * 0.5 + radius;
     float2 outside = max(q, 0.0);
     float inside = min(max(q.x, q.y), 0.0);
-    if (corner_shape != 1u || radius <= 0.0 || outside.x <= 0.0 || outside.y <= 0.0) {
+    if ((corner_shape != 1u && corner_shape != 2u) ||
+        radius <= 0.0 ||
+        outside.x <= 0.0 ||
+        outside.y <= 0.0) {
         return length(outside) + inside - radius;
     }
 
-    // CSS superellipse(2): x^4 + y^4 = r^4. Normalize the implicit
-    // field by its gradient so border and antialias offsets stay in points.
-    float2 squared = outside * outside;
-    float norm4 = sqrt(sqrt(squared.x * squared.x + squared.y * squared.y));
-    float2 cubed = squared * outside;
-    float gradient = length(cubed) / max(norm4 * norm4 * norm4, 0.0001);
-    return (norm4 - radius) / max(gradient, 0.0001);
+    // Squircle is CSS superellipse(2): x^4 + y^4 = r^4.
+    // Squircle_Pill uses p=2.2 so a half-height radius reads as a capsule
+    // instead of hugging the box. Normalize by the gradient so AA stays in points.
+    float p = corner_shape == 2u ? 2.2 : 4.0;
+    float2 ap = pow(outside, float2(p));
+    float norm = pow(ap.x + ap.y, 1.0 / p);
+    float2 gp = pow(outside, float2(p - 1.0));
+    float2 grad = gp * pow(max(norm, 0.0001), 1.0 - p);
+    return (norm - radius) / max(length(grad), 0.0001);
 }
 
 fragment float4 ui_fragment(
