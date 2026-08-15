@@ -13,10 +13,14 @@ batch_uniforms_match_metal_constant_layout_test :: proc(t: ^testing.T) {
 }
 
 @(test)
-gpu_quad_instance_keeps_layout_and_corner_shape_test :: proc(t: ^testing.T) {
-	testing.expect_value(t, size_of(GPU_Quad_Instance), 128)
-	instance := gpu_instance(draw.Quad_Instance{corner_shape = .Squircle})
+gpu_quad_instance_keeps_layout_corner_shape_and_effect_offset_test :: proc(t: ^testing.T) {
+	testing.expect_value(t, size_of(GPU_Quad_Instance), 144)
+	instance := gpu_instance(draw.Quad_Instance{
+		corner_shape = .Squircle,
+		effect_offset = {-1.25, 1.25},
+	})
 	testing.expect_value(t, instance.corner_shape, u32(draw.Corner_Shape.Squircle))
+	testing.expect_value(t, instance.effect_offset, [2]f32{-1.25, 1.25})
 }
 
 foreign import metal_framework "system:Metal.framework"
@@ -243,6 +247,141 @@ offscreen_squircle_contour_and_border_are_distinct_from_round_test :: proc(t: ^t
 	testing.expect(t, pixels[squircle_corner] > 224)
 	testing.expect(t, pixels[border_corner] > 192)
 	testing.expect(t, pixels[border_center] < 8)
+}
+
+@(test)
+offscreen_y_band_keeps_top_half_ring_and_clears_the_mid :: proc(t: ^testing.T) {
+	if !load_objc() {testing.expect(t, false); return}
+	device := MTLCreateSystemDefaultDevice()
+	if device == nil {testing.expect(t, false); return}
+	renderer: Renderer
+	testing.expect(t, renderer_init(&renderer, device, allow_runtime_fallback = true))
+	defer renderer_destroy(&renderer)
+
+	descriptor := msg_id_u_u_u_bool(
+		objc_getClass("MTLTextureDescriptor"),
+		sel_registerName("texture2DDescriptorWithPixelFormat:width:height:mipmapped:"),
+		80,
+		96,
+		64,
+		false,
+	)
+	target := msg_id_id(device, sel_registerName("newTextureWithDescriptor:"), descriptor)
+	testing.expect(t, target != nil)
+	defer release(target)
+	queue := msg_id(device, sel_registerName("newCommandQueue"))
+	testing.expect(t, queue != nil)
+	defer release(queue)
+	command_buffer := msg_id(queue, sel_registerName("commandBuffer"))
+
+	list: draw.List
+	draw.list_init(&list)
+	defer draw.list_destroy(&list)
+	draw.y_band(
+		&list,
+		{16, 8, 64, 48},
+		{1, 1, 1, 1},
+		24,
+		4,
+		0.5,
+		1,
+		0.05,
+	)
+	testing.expect(t, encode_to_drawable(
+		&renderer,
+		command_buffer,
+		target,
+		&list,
+		{96, 64},
+		1,
+		{0, 0, 0, 1},
+	))
+	msg_void(command_buffer, sel_registerName("commit"))
+	msg_void(command_buffer, sel_registerName("waitUntilCompleted"))
+
+	pixels := make([]u8, 96*64*4, context.temp_allocator)
+	defer delete(pixels, context.temp_allocator)
+	msg_void_get_bytes(
+		target,
+		sel_registerName("getBytes:bytesPerRow:fromRegion:mipmapLevel:"),
+		raw_data(pixels),
+		96*4,
+		{size = {96, 64, 1}},
+		0,
+	)
+	// UI Y is up. Texture row = viewport_h - ui_y.
+	top := ((64 - 55) * 96 + 48) * 4
+	mid := ((64 - 32) * 96 + 18) * 4
+	bottom := ((64 - 9) * 96 + 48) * 4
+	testing.expect(t, pixels[top] > 192)
+	testing.expect(t, pixels[mid] < 32)
+	testing.expect(t, pixels[bottom] < 32)
+}
+
+@(test)
+offscreen_inset_shadow_stays_clipped_and_favors_its_offset_edge_test :: proc(t: ^testing.T) {
+	if !load_objc() {testing.expect(t, false); return}
+	device := MTLCreateSystemDefaultDevice()
+	if device == nil {testing.expect(t, false); return}
+	renderer: Renderer
+	testing.expect(t, renderer_init(&renderer, device, allow_runtime_fallback = true))
+	defer renderer_destroy(&renderer)
+
+	descriptor := msg_id_u_u_u_bool(
+		objc_getClass("MTLTextureDescriptor"),
+		sel_registerName("texture2DDescriptorWithPixelFormat:width:height:mipmapped:"),
+		80,
+		96,
+		64,
+		false,
+	)
+	target := msg_id_id(device, sel_registerName("newTextureWithDescriptor:"), descriptor)
+	testing.expect(t, target != nil)
+	defer release(target)
+	queue := msg_id(device, sel_registerName("newCommandQueue"))
+	testing.expect(t, queue != nil)
+	defer release(queue)
+	command_buffer := msg_id(queue, sel_registerName("commandBuffer"))
+
+	list: draw.List
+	draw.list_init(&list)
+	defer draw.list_destroy(&list)
+	draw.solid(&list, {16, 16, 64, 32}, {0.75, 0.75, 0.75, 1}, 16)
+	draw.inset_shadow(
+		&list,
+		{16, 16, 64, 32},
+		{0, 0, 0, 0.5},
+		16,
+		{-2, 0},
+		1.5,
+	)
+	testing.expect(t, encode_to_drawable(
+		&renderer,
+		command_buffer,
+		target,
+		&list,
+		{96, 64},
+		1,
+		{1, 1, 1, 1},
+	))
+	msg_void(command_buffer, sel_registerName("commit"))
+	msg_void(command_buffer, sel_registerName("waitUntilCompleted"))
+
+	pixels := make([]u8, 96*64*4, context.temp_allocator)
+	defer delete(pixels, context.temp_allocator)
+	msg_void_get_bytes(
+		target,
+		sel_registerName("getBytes:bytesPerRow:fromRegion:mipmapLevel:"),
+		raw_data(pixels),
+		96*4,
+		{size = {96, 64, 1}},
+		0,
+	)
+	left := (32*96+17)*4
+	right := (32*96+78)*4
+	outside := (32*96+14)*4
+	testing.expect(t, pixels[left] < pixels[right])
+	testing.expect(t, pixels[outside] >= 250)
 }
 
 @(test)

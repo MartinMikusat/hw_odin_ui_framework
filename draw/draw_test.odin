@@ -45,6 +45,59 @@ solid_defaults_to_round_and_keeps_squircle_in_the_same_batch_test :: proc(t: ^te
 }
 
 @(test)
+y_band_records_window_and_border_test :: proc(t: ^testing.T) {
+	list: List
+	list_init(&list)
+	defer list_destroy(&list)
+
+	y_band(
+		&list,
+		{2, 3, 52, 32},
+		{1, 1, 1, 0.8},
+		16,
+		4,
+		0.5,
+		1,
+		0.08,
+		corner_shape = .Round,
+		label = "glass inner highlight",
+	)
+
+	testing.expect_value(t, len(list.batches), 1)
+	instance := list.batches[0].instances[0]
+	testing.expect_value(t, instance.texture_mode, Texture_Mode.Y_Band)
+	testing.expect_value(t, instance.effect_offset, [2]f32{0.5, 1})
+	testing.expect_value(t, instance.src.x, f32(0.08))
+	testing.expect_value(t, instance.border_thickness, f32(4))
+	testing.expect_value(t, instance.corner_shape, Corner_Shape.Round)
+	testing.expect_value(t, list.trace[0].label, "glass inner highlight")
+}
+
+@(test)
+inset_shadow_records_direction_and_contour_test :: proc(t: ^testing.T) {
+	list: List
+	list_init(&list)
+	defer list_destroy(&list)
+
+	inset_shadow(
+		&list,
+		{2, 3, 52, 32},
+		{0, 0, 0, 0.12},
+		16,
+		{-1.25, 1.25},
+		1.5,
+		corner_shape = .Squircle,
+	)
+
+	testing.expect_value(t, len(list.batches), 1)
+	instance := list.batches[0].instances[0]
+	testing.expect_value(t, instance.texture_mode, Texture_Mode.Inset_Shadow)
+	testing.expect_value(t, instance.effect_offset, [2]f32{-1.25, 1.25})
+	testing.expect_value(t, instance.edge_softness, f32(1.5))
+	testing.expect_value(t, instance.corner_shape, Corner_Shape.Squircle)
+}
+
+@(test)
 clip_and_opacity_state_split_batches_without_reordering_test :: proc(t: ^testing.T) {
 	list: List
 	list_init(&list)

@@ -26,6 +26,8 @@ Texture_Mode :: enum {
 	Alpha_Mask,
 	Color,
 	Shadow,
+	Inset_Shadow,
+	Y_Band,
 }
 
 Combine :: enum {
@@ -43,6 +45,7 @@ Quad_Instance :: struct {
 	src:              Rect,
 	colors:           [4]Color,
 	corner_radii:     [4]f32,
+	effect_offset:    [2]f32,
 	border_thickness: f32,
 	edge_softness:    f32,
 	texture_mode:     Texture_Mode,
@@ -402,6 +405,56 @@ solid :: proc(
 		corner_shape = corner_shape,
 	}
 	append_quad(list, instance, kind = .Solid, label = label, combine = combine)
+}
+
+y_band :: proc(
+	list: ^List,
+	rect: Rect,
+	color: Color,
+	corner_radius: f32,
+	border_thickness: f32,
+	y0, y1: f32,
+	feather: f32 = 0.08,
+	edge_softness: f32 = 1,
+	label := "",
+	corner_shape := Corner_Shape.Round,
+) {
+	if rect_is_empty(rect) || color[3] <= 0 {return}
+	instance := Quad_Instance{
+		dst = rect,
+		src = {max(feather, 0.0001), 0, 0, 0},
+		colors = {color, color, color, color},
+		corner_radii = {corner_radius, corner_radius, corner_radius, corner_radius},
+		effect_offset = {y0, y1},
+		border_thickness = border_thickness,
+		edge_softness = edge_softness,
+		texture_mode = .Y_Band,
+		corner_shape = corner_shape,
+	}
+	append_quad(list, instance, kind = .Solid, label = label)
+}
+
+inset_shadow :: proc(
+	list: ^List,
+	rect: Rect,
+	color: Color,
+	corner_radius: f32,
+	effect_offset: [2]f32,
+	softness: f32 = 1,
+	label := "inset shadow",
+	corner_shape := Corner_Shape.Round,
+) {
+	if rect_is_empty(rect) || color[3] <= 0 {return}
+	instance := Quad_Instance{
+		dst = rect,
+		colors = {color, color, color, color},
+		corner_radii = {corner_radius, corner_radius, corner_radius, corner_radius},
+		effect_offset = effect_offset,
+		edge_softness = softness,
+		texture_mode = .Inset_Shadow,
+		corner_shape = corner_shape,
+	}
+	append_quad(list, instance, kind = .Solid, label = label)
 }
 
 image :: proc(

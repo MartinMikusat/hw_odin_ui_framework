@@ -6,10 +6,12 @@ struct QuadInstance {
     float4 src;
     float4 colors[4];
     float4 corner_radii;
+    float2 effect_offset;
     float border_thickness;
     float edge_softness;
     uint texture_mode;
     uint corner_shape;
+    uint2 tail;
 };
 
 struct BatchUniforms {
@@ -27,6 +29,7 @@ struct VertexOut {
     float2 size;
     float4 color;
     float4 corner_radii;
+    float2 effect_offset;
     float border_thickness;
     float edge_softness;
     uint texture_mode [[flat]];
@@ -59,6 +62,7 @@ vertex VertexOut ui_vertex(
     output.size = instance.dst.zw;
     output.color = instance.colors[color_index] * uniforms.opacity;
     output.corner_radii = instance.corner_radii;
+    output.effect_offset = instance.effect_offset;
     output.border_thickness = instance.border_thickness;
     output.edge_softness = max(instance.edge_softness, 0.5);
     output.texture_mode = instance.texture_mode;
@@ -107,15 +111,40 @@ fragment float4 ui_fragment(
         input.corner_shape
     );
     float outer_alpha = 1.0 - smoothstep(-input.edge_softness, input.edge_softness, distance);
+    if (input.texture_mode == 4u) {
+        float shifted_distance = rounded_distance(
+            input.local + input.effect_offset,
+            input.size,
+            input.corner_radii,
+            input.corner_shape
+        );
+        float shifted_inside = 1.0 - smoothstep(
+            -input.edge_softness,
+            input.edge_softness,
+            shifted_distance
+        );
+        float clip_alpha = 1.0 - smoothstep(-0.5, 0.5, distance);
+        outer_alpha = clip_alpha * (1.0 - shifted_inside);
+    }
     if (input.border_thickness > 0.0) {
         float inner_distance = distance + input.border_thickness;
         float inner_alpha = 1.0 - smoothstep(-input.edge_softness, input.edge_softness, inner_distance);
         outer_alpha = max(0.0, outer_alpha - inner_alpha);
     }
+    if (input.texture_mode == 5u) {
+        float t = input.local.y / max(input.size.y, 0.0001);
+        float y0 = input.effect_offset.x;
+        float y1 = input.effect_offset.y;
+        float feather = max(input.uv.x, 0.0001);
+        float low = y0 <= 0.0 ? 1.0 : smoothstep(y0, y0 + feather, t);
+        float high = y1 >= 1.0 ? 1.0 : (1.0 - smoothstep(y1 - feather, y1, t));
+        outer_alpha *= low * high;
+    }
 
     float4 tint = input.color;
     float4 result;
-    if (input.texture_mode == 0u || input.texture_mode == 3u) {
+    if (input.texture_mode == 0u || input.texture_mode == 3u ||
+        input.texture_mode == 4u || input.texture_mode == 5u) {
         result = float4(tint.rgb * tint.a, tint.a);
     } else if (input.texture_mode == 1u) {
         float mask = texture.sample(texture_sampler, input.uv).r;

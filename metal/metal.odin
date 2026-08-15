@@ -47,10 +47,12 @@ GPU_Quad_Instance :: struct {
 	src:              [4]f32,
 	colors:           [4][4]f32,
 	corner_radii:     [4]f32,
+	effect_offset:    [2]f32,
 	border_thickness: f32,
 	edge_softness:    f32,
 	texture_mode:     u32,
 	corner_shape:     u32,
+	_tail:            [2]u32,
 }
 
 GPU_Path_Vertex :: struct {
@@ -648,6 +650,7 @@ gpu_instance :: proc(instance: draw.Quad_Instance) -> GPU_Quad_Instance {
 		src = {instance.src.x, instance.src.y, instance.src.w, instance.src.h},
 		colors = instance.colors,
 		corner_radii = instance.corner_radii,
+		effect_offset = instance.effect_offset,
 		border_thickness = instance.border_thickness,
 		edge_softness = instance.edge_softness,
 		texture_mode = u32(instance.texture_mode),

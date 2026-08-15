@@ -26,9 +26,10 @@ ordered draw buckets. It does not copy RADDBG source code.
 - `hal_wayland` defines the canonical Hal Wayland light/dark palette, semantic
   accents, typography, application chrome geometry, responsive action-bar
   layout, and square control styles.
-- `draw` records ordered rectangles, vector paths, glyphs, images, and external
-  textures. Its path API delegates curve flattening and stroke expansion to
-  the Odin-native `vendor:nanovg` package in the active Odin toolchain.
+- `draw` records ordered rectangles, analytic inset shadows, vertical Y-band
+  rings, vector paths, glyphs, images, and external textures. Its path API
+  delegates curve flattening and stroke expansion to the Odin-native
+  `vendor:nanovg` package in the active Odin toolchain.
 - `diagnostics` captures stable control snapshots, ordered render traces, and
   fixed-capacity CPU/GPU performance histories without allocating per frame.
 - `coretext` shapes text and supplies glyphs to the draw stream.
