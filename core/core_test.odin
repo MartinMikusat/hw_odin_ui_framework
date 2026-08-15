@@ -271,6 +271,55 @@ modal_scope_publishes_only_modal_controls_and_preserves_draw_order_test :: proc(
 	testing.expect(t, button_index > modal_index)
 }
 
+test_draw_drop_shadow :: proc(user_data: rawptr, list: ^draw.List, rect: draw.Rect) {
+	_ = user_data
+	draw.solid(list, rect, {0, 0, 0, 0.2}, 0, 0, 1, "drop shadow")
+}
+
+@(test)
+ancestor_fill_does_not_cover_child_drop_shadows_test :: proc(t: ^testing.T) {
+	ctx: Context
+	context_init(&ctx)
+	defer context_destroy(&ctx)
+	frame := begin_frame(&ctx, {viewport = {0, 0, 200, 100}})
+	defer frame_destroy(&frame)
+	_ = box_begin(&frame, Box{
+		key = key_from_string("page"),
+		debug_label = "page fill",
+		layout = {width = percent(1), height = percent(1), flow = .Overlay},
+		style = {background = {0.9, 0.9, 0.9, 1}, opacity = 1},
+		flags = {.Draw_Background},
+	})
+	_ = box_begin(&frame, Box{
+		key = key_from_string("host"),
+		debug_label = "host",
+		layout = {width = points(40), height = points(20), flow = .Overlay},
+	})
+	_ = box_add(&frame, Box{
+		key = key_from_string("shadow"),
+		debug_label = "shadow host",
+		layout = {width = percent(1), height = percent(1)},
+		flags = {.Drop_Shadow},
+		custom_draw = test_draw_drop_shadow,
+	})
+	_ = box_add(&frame, Box{
+		key = key_from_string("face"),
+		debug_label = "face fill",
+		layout = {width = percent(1), height = percent(1)},
+		style = {background = {1, 1, 1, 1}, opacity = 1},
+		flags = {.Draw_Background},
+	})
+	box_end(&frame)
+	box_end(&frame)
+	output := end_frame(&frame)
+	page_index := trace_label_index(output.draw_list.trace[:], "page fill")
+	shadow_index := trace_label_index(output.draw_list.trace[:], "drop shadow")
+	face_index := trace_label_index(output.draw_list.trace[:], "face fill")
+	testing.expect(t, page_index >= 0)
+	testing.expect(t, shadow_index > page_index)
+	testing.expect(t, face_index > shadow_index)
+}
+
 @(test)
 layer_order_is_independent_of_box_construction_order_test :: proc(t: ^testing.T) {
 	ctx: Context

@@ -105,6 +105,10 @@ emit visible rows plus spacers that preserve the complete scroll extent.
 Scoped declarations provide layout, style, flag, and layer defaults. A next-box
 declaration applies once. Widgets and application boxes use the same keyed tree.
 
+Each box emits its fill, then any `Drop_Shadow` children, then its face and
+non-shadow descendants. Ancestor backgrounds therefore cannot cover a child's
+drop shadow.
+
 Each logical UI surface owns base, popup, tooltip, and legacy modal strata. The
 framework renders the base surface first, then each modal surface in stack
 order, and emits the debug stratum once above the complete stack. A modal root

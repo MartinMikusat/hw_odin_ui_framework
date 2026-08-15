@@ -15,22 +15,47 @@ effective_layer :: proc(box: ^Box) -> Layer {
 	return box.layer
 }
 
-emit_box_surface_layer :: proc(
-	frame: ^Frame,
-	index, surface_index: int,
-	layer: Layer,
-	shadows: bool,
-) {
+box_clipped_rect :: proc(frame: ^Frame, index, surface_index: int) -> draw.Rect {
 	box := &frame.boxes[index]
-	if box.surface != surface_index {return}
-	box.clipped_rect = draw.rect_intersection(box.rect, frame.input.viewport)
+	clipped := draw.rect_intersection(box.rect, frame.input.viewport)
 	for parent := box.parent; parent >= 0; parent = frame.boxes[parent].parent {
 		ancestor := &frame.boxes[parent]
 		if ancestor.surface != surface_index {break}
 		if ancestor.style.clip || .Clip in ancestor.flags {
-			box.clipped_rect = draw.rect_intersection(box.clipped_rect, ancestor.rect)
+			clipped = draw.rect_intersection(clipped, ancestor.rect)
 		}
 	}
+	return clipped
+}
+
+emit_child_drop_shadow :: proc(frame: ^Frame, index, surface_index: int, layer: Layer) {
+	box := &frame.boxes[index]
+	if box.surface != surface_index {return}
+	if .Drop_Shadow not_in box.flags || box.custom_draw == nil {return}
+	box.clipped_rect = box_clipped_rect(frame, index, surface_index)
+	if draw.rect_is_empty(box.clipped_rect) {return}
+	if effective_layer(box) != layer {return}
+	transformed := box.custom_transform != nil
+	if transformed {
+		draw.push_transform(
+			&frame.draw_list,
+			box.custom_transform(box.transform_data, box.rect),
+		)
+	}
+	if box.style.opacity < 1 {draw.push_opacity(&frame.draw_list, box.style.opacity)}
+	box.custom_draw(box.custom_data, &frame.draw_list, box.rect)
+	if box.style.opacity < 1 {draw.pop_opacity(&frame.draw_list)}
+	if transformed {draw.pop_transform(&frame.draw_list)}
+}
+
+emit_box_surface_layer :: proc(
+	frame: ^Frame,
+	index, surface_index: int,
+	layer: Layer,
+) {
+	box := &frame.boxes[index]
+	if box.surface != surface_index {return}
+	box.clipped_rect = box_clipped_rect(frame, index, surface_index)
 	visible := !draw.rect_is_empty(box.clipped_rect)
 	if !visible && box.style.clip {return}
 	transformed := box.custom_transform != nil
@@ -44,42 +69,40 @@ emit_box_surface_layer :: proc(
 	if len(trace_label) == 0 {trace_label = box.text}
 	if box.style.opacity < 1 {draw.push_opacity(&frame.draw_list, box.style.opacity)}
 	box_layer := effective_layer(box)
-	if shadows {
-		if visible && box_layer == layer && .Drop_Shadow in box.flags && box.custom_draw != nil {
-			box.custom_draw(box.custom_data, &frame.draw_list, box.rect)
-		}
-	} else {
-		if visible && box_layer == layer && .Draw_Background in box.flags {
-			draw.solid(
-				&frame.draw_list,
-				box.rect,
-				box.style.background,
-				box.style.corner_radius,
-				0,
-				box.style.edge_softness,
-				trace_label,
-				corner_shape = box.style.corner_shape,
-			)
-		}
-		if visible && box_layer == layer && .Draw_Border in box.flags && box.style.border_thickness > 0 {
-			draw.solid(
-				&frame.draw_list,
-				box.rect,
-				box.style.border,
-				box.style.corner_radius,
-				box.style.border_thickness,
-				box.style.edge_softness,
-				"border",
-				corner_shape = box.style.corner_shape,
-			)
-		}
+	on_layer := visible && box_layer == layer
+	if on_layer && .Draw_Background in box.flags {
+		draw.solid(
+			&frame.draw_list,
+			box.rect,
+			box.style.background,
+			box.style.corner_radius,
+			0,
+			box.style.edge_softness,
+			trace_label,
+			corner_shape = box.style.corner_shape,
+		)
+	}
+	if on_layer && .Draw_Border in box.flags && box.style.border_thickness > 0 {
+		draw.solid(
+			&frame.draw_list,
+			box.rect,
+			box.style.border,
+			box.style.corner_radius,
+			box.style.border_thickness,
+			box.style.edge_softness,
+			"border",
+			corner_shape = box.style.corner_shape,
+		)
 	}
 	if box.style.clip {draw.push_clip(&frame.draw_list, box.rect)}
-	if !shadows {
-		if visible && box_layer == layer && .Draw_Image in box.flags {
+	if on_layer {
+		for child := box.first_child; child >= 0; child = frame.boxes[child].next_sibling {
+			emit_child_drop_shadow(frame, child, surface_index, layer)
+		}
+		if .Draw_Image in box.flags {
 			draw.image(&frame.draw_list, box.texture, box.rect, box.texture_src, label = trace_label)
 		}
-		if visible && box_layer == layer && .Draw_Text in box.flags && frame.text_backend.emit != nil &&
+		if .Draw_Text in box.flags && frame.text_backend.emit != nil &&
 		   box.text_run != Text_Run_ID(0) {
 			frame.text_backend.emit(
 				frame.text_backend.user_data,
@@ -91,7 +114,7 @@ emit_box_surface_layer :: proc(
 				box.style.text,
 			)
 		}
-		if visible && box_layer == layer && box.custom_draw != nil && .Drop_Shadow not_in box.flags {
+		if box.custom_draw != nil && .Drop_Shadow not_in box.flags {
 			box.custom_draw(box.custom_data, &frame.draw_list, box.rect)
 		}
 		surface := &frame.surfaces[surface_index]
@@ -99,7 +122,7 @@ emit_box_surface_layer :: proc(
 		input_allowed := surface.input_root < 0 ||
 		                 is_descendant_of(frame, index, surface.input_root)
 		passthrough := .Input_Passthrough in box.flags
-		if visible && box_layer == layer && .Interactive in box.flags &&
+		if .Interactive in box.flags &&
 		   ((surface_index == active_surface && input_allowed) || passthrough) {
 			action := find_action(frame.actions[:], box.control.action)
 			enabled := box.control.action == Action_ID(0) || (action != nil && action.enabled)
@@ -131,7 +154,8 @@ emit_box_surface_layer :: proc(
 		}
 	}
 	for child := box.first_child; child >= 0; child = frame.boxes[child].next_sibling {
-		emit_box_surface_layer(frame, child, surface_index, layer, shadows)
+		if .Drop_Shadow in frame.boxes[child].flags {continue}
+		emit_box_surface_layer(frame, child, surface_index, layer)
 	}
 	if box.style.clip {draw.pop_clip(&frame.draw_list)}
 	if box.style.opacity < 1 {draw.pop_opacity(&frame.draw_list)}
@@ -154,15 +178,13 @@ emit_layers :: proc(frame: ^Frame) {
 	for &surface, surface_index in frame.surfaces {
 		for layer in local_layers {
 			draw.begin_group(&frame.draw_list, layer_label(layer))
-			emit_box_surface_layer(frame, surface.root_box, surface_index, layer, true)
-			emit_box_surface_layer(frame, surface.root_box, surface_index, layer, false)
+			emit_box_surface_layer(frame, surface.root_box, surface_index, layer)
 			draw.end_group(&frame.draw_list, layer_label(layer))
 		}
 	}
 	draw.begin_group(&frame.draw_list, layer_label(.Debug))
 	for &surface, surface_index in frame.surfaces {
-		emit_box_surface_layer(frame, surface.root_box, surface_index, .Debug, true)
-		emit_box_surface_layer(frame, surface.root_box, surface_index, .Debug, false)
+		emit_box_surface_layer(frame, surface.root_box, surface_index, .Debug)
 	}
 	draw.end_group(&frame.draw_list, layer_label(.Debug))
 	for &box in frame.boxes {
