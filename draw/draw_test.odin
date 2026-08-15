@@ -74,6 +74,36 @@ y_band_records_window_and_border_test :: proc(t: ^testing.T) {
 }
 
 @(test)
+y_ramp_records_three_stops_and_border_test :: proc(t: ^testing.T) {
+	list: List
+	list_init(&list)
+	defer list_destroy(&list)
+
+	y_ramp(
+		&list,
+		{2, 3, 52, 32},
+		{1, 0, 0, 0.8},
+		{0, 0, 0, 0.6},
+		{1, 1, 1, 0.9},
+		16,
+		4,
+		0.33,
+		0.5,
+		label = "glass inner rim",
+	)
+
+	testing.expect_value(t, len(list.batches), 1)
+	instance := list.batches[0].instances[0]
+	testing.expect_value(t, instance.texture_mode, Texture_Mode.Y_Ramp)
+	testing.expect_value(t, instance.effect_offset, [2]f32{0.33, 0.5})
+	testing.expect_value(t, instance.border_thickness, f32(4))
+	testing.expect_value(t, instance.colors[0], Color{1, 0, 0, 0.8})
+	testing.expect_value(t, instance.colors[1], Color{0, 0, 0, 0.6})
+	testing.expect_value(t, instance.colors[2], Color{1, 1, 1, 0.9})
+	testing.expect_value(t, list.trace[0].label, "glass inner rim")
+}
+
+@(test)
 inset_shadow_records_direction_and_contour_test :: proc(t: ^testing.T) {
 	list: List
 	list_init(&list)

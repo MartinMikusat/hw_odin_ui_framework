@@ -28,6 +28,7 @@ Texture_Mode :: enum {
 	Shadow,
 	Inset_Shadow,
 	Y_Band,
+	Y_Ramp,
 }
 
 Combine :: enum {
@@ -429,6 +430,32 @@ y_band :: proc(
 		border_thickness = border_thickness,
 		edge_softness = edge_softness,
 		texture_mode = .Y_Band,
+		corner_shape = corner_shape,
+	}
+	append_quad(list, instance, kind = .Solid, label = label)
+}
+
+y_ramp :: proc(
+	list: ^List,
+	rect: Rect,
+	bottom, mid, top: Color,
+	corner_radius: f32,
+	border_thickness: f32,
+	y_mid_lo, y_mid_hi: f32,
+	edge_softness: f32 = 1,
+	label := "",
+	corner_shape := Corner_Shape.Round,
+) {
+	if rect_is_empty(rect) {return}
+	if bottom[3] <= 0 && mid[3] <= 0 && top[3] <= 0 {return}
+	instance := Quad_Instance{
+		dst = rect,
+		colors = {bottom, mid, top, top},
+		corner_radii = {corner_radius, corner_radius, corner_radius, corner_radius},
+		effect_offset = {y_mid_lo, y_mid_hi},
+		border_thickness = border_thickness,
+		edge_softness = edge_softness,
+		texture_mode = .Y_Ramp,
 		corner_shape = corner_shape,
 	}
 	append_quad(list, instance, kind = .Solid, label = label)

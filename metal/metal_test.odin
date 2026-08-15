@@ -319,6 +319,78 @@ offscreen_y_band_keeps_top_half_ring_and_clears_the_mid :: proc(t: ^testing.T) {
 }
 
 @(test)
+offscreen_y_ramp_ring_fades_from_top_highlight_to_bottom_glow_test :: proc(t: ^testing.T) {
+	if !load_objc() {testing.expect(t, false); return}
+	device := MTLCreateSystemDefaultDevice()
+	if device == nil {testing.expect(t, false); return}
+	renderer: Renderer
+	testing.expect(t, renderer_init(&renderer, device, allow_runtime_fallback = true))
+	defer renderer_destroy(&renderer)
+
+	descriptor := msg_id_u_u_u_bool(
+		objc_getClass("MTLTextureDescriptor"),
+		sel_registerName("texture2DDescriptorWithPixelFormat:width:height:mipmapped:"),
+		80,
+		96,
+		64,
+		false,
+	)
+	target := msg_id_id(device, sel_registerName("newTextureWithDescriptor:"), descriptor)
+	testing.expect(t, target != nil)
+	defer release(target)
+	queue := msg_id(device, sel_registerName("newCommandQueue"))
+	testing.expect(t, queue != nil)
+	defer release(queue)
+	command_buffer := msg_id(queue, sel_registerName("commandBuffer"))
+
+	list: draw.List
+	draw.list_init(&list)
+	defer draw.list_destroy(&list)
+	draw.y_ramp(
+		&list,
+		{16, 8, 64, 48},
+		{1, 0, 0, 1},
+		{0, 0, 0, 1},
+		{1, 1, 1, 1},
+		24,
+		6,
+		0.33,
+		0.5,
+	)
+	testing.expect(t, encode_to_drawable(
+		&renderer,
+		command_buffer,
+		target,
+		&list,
+		{96, 64},
+		1,
+		{0, 0, 1, 1},
+	))
+	msg_void(command_buffer, sel_registerName("commit"))
+	msg_void(command_buffer, sel_registerName("waitUntilCompleted"))
+
+	pixels := make([]u8, 96*64*4, context.temp_allocator)
+	defer delete(pixels, context.temp_allocator)
+	msg_void_get_bytes(
+		target,
+		sel_registerName("getBytes:bytesPerRow:fromRegion:mipmapLevel:"),
+		raw_data(pixels),
+		96*4,
+		{size = {96, 64, 1}},
+		0,
+	)
+	top := ((64 - 53) * 96 + 48) * 4
+	mid := ((64 - 32) * 96 + 18) * 4
+	bottom := ((64 - 12) * 96 + 48) * 4
+	testing.expect(t, pixels[top] > 192)
+	testing.expect(t, pixels[top + 1] > 192)
+	testing.expect(t, pixels[mid] < 48)
+	testing.expect(t, pixels[mid + 1] < 48)
+	testing.expect(t, pixels[bottom + 2] > 192)
+	testing.expect(t, pixels[bottom + 1] < 48)
+}
+
+@(test)
 offscreen_inset_shadow_stays_clipped_and_favors_its_offset_edge_test :: proc(t: ^testing.T) {
 	if !load_objc() {testing.expect(t, false); return}
 	device := MTLCreateSystemDefaultDevice()

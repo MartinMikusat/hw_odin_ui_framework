@@ -28,6 +28,9 @@ struct VertexOut {
     float2 local;
     float2 size;
     float4 color;
+    float4 ramp_bottom [[flat]];
+    float4 ramp_mid [[flat]];
+    float4 ramp_top [[flat]];
     float4 corner_radii;
     float2 effect_offset;
     float border_thickness;
@@ -61,6 +64,9 @@ vertex VertexOut ui_vertex(
     output.local = corner * instance.dst.zw;
     output.size = instance.dst.zw;
     output.color = instance.colors[color_index] * uniforms.opacity;
+    output.ramp_bottom = instance.colors[0] * uniforms.opacity;
+    output.ramp_mid = instance.colors[1] * uniforms.opacity;
+    output.ramp_top = instance.colors[2] * uniforms.opacity;
     output.corner_radii = instance.corner_radii;
     output.effect_offset = instance.effect_offset;
     output.border_thickness = instance.border_thickness;
@@ -142,9 +148,24 @@ fragment float4 ui_fragment(
     }
 
     float4 tint = input.color;
+    if (input.texture_mode == 6u) {
+        float t = saturate(input.local.y / max(input.size.y, 0.0001));
+        float y0 = input.effect_offset.x;
+        float y1 = input.effect_offset.y;
+        if (t <= y0) {
+            float u = y0 <= 0.0 ? 1.0 : saturate(t / max(y0, 0.0001));
+            tint = mix(input.ramp_bottom, input.ramp_mid, smoothstep(0.0, 1.0, u));
+        } else if (t <= y1) {
+            tint = input.ramp_mid;
+        } else {
+            float u = y1 >= 1.0 ? 1.0 : saturate((t - y1) / max(1.0 - y1, 0.0001));
+            tint = mix(input.ramp_mid, input.ramp_top, smoothstep(0.0, 1.0, u));
+        }
+    }
     float4 result;
     if (input.texture_mode == 0u || input.texture_mode == 3u ||
-        input.texture_mode == 4u || input.texture_mode == 5u) {
+        input.texture_mode == 4u || input.texture_mode == 5u ||
+        input.texture_mode == 6u) {
         result = float4(tint.rgb * tint.a, tint.a);
     } else if (input.texture_mode == 1u) {
         float mask = texture.sample(texture_sampler, input.uv).r;
