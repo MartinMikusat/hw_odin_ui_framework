@@ -74,7 +74,7 @@ vertex VertexOut ui_vertex(
     output.hole_size = instance.src.zw;
     output.hole_radius = instance.src.x;
     output.border_thickness = instance.border_thickness;
-    output.edge_softness = max(instance.edge_softness, 0.5);
+    output.edge_softness = max(instance.edge_softness, 0.0001);
     output.texture_mode = instance.texture_mode;
     output.corner_shape = instance.corner_shape;
     return output;
