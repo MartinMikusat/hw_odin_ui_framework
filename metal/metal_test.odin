@@ -666,3 +666,70 @@ overlapping_max_shadows_keep_peak_coverage_test :: proc(t: ^testing.T) {
 	channel := pixels[overlap+1]
 	testing.expect(t, channel >= 232 && channel <= 248)
 }
+
+@(test)
+offscreen_drop_shadow_punches_caster_and_keeps_the_halo_test :: proc(t: ^testing.T) {
+	if !load_objc() {testing.expect(t, false); return}
+	device := MTLCreateSystemDefaultDevice()
+	if device == nil {testing.expect(t, false); return}
+	renderer: Renderer
+	testing.expect(t, renderer_init(&renderer, device, allow_runtime_fallback = true))
+	defer renderer_destroy(&renderer)
+
+	descriptor := msg_id_u_u_u_bool(
+		objc_getClass("MTLTextureDescriptor"),
+		sel_registerName("texture2DDescriptorWithPixelFormat:width:height:mipmapped:"),
+		80,
+		64,
+		64,
+		false,
+	)
+	msg_void_u(descriptor, sel_registerName("setUsage:"), 5)
+	target := msg_id_id(device, sel_registerName("newTextureWithDescriptor:"), descriptor)
+	testing.expect(t, target != nil)
+	defer release(target)
+	queue := msg_id(device, sel_registerName("newCommandQueue"))
+	testing.expect(t, queue != nil)
+	defer release(queue)
+	command_buffer := msg_id(queue, sel_registerName("commandBuffer"))
+
+	list: draw.List
+	draw.list_init(&list)
+	defer draw.list_destroy(&list)
+	draw.drop_shadow(
+		&list,
+		{8, 4, 48, 56},
+		{0, 0, 0, 0.7},
+		8,
+		8,
+		{8, 16, 32, 32},
+		8,
+	)
+	testing.expect(t, encode_to_drawable(
+		&renderer,
+		command_buffer,
+		target,
+		&list,
+		{64, 64},
+		1,
+		{1, 1, 1, 1},
+	))
+	msg_void(command_buffer, sel_registerName("commit"))
+	msg_void(command_buffer, sel_registerName("waitUntilCompleted"))
+
+	pixels := make([]u8, 64*64*4, context.temp_allocator)
+	defer delete(pixels, context.temp_allocator)
+	msg_void_get_bytes(
+		target,
+		sel_registerName("getBytes:bytesPerRow:fromRegion:mipmapLevel:"),
+		raw_data(pixels),
+		64*4,
+		{size = {64, 64, 1}},
+		0,
+	)
+	// UI Y is up. Caster center (32, 36) -> row 28. Halo below at (32, 12) -> row 52.
+	inside := ((64 - 36) * 64 + 32) * 4
+	halo := ((64 - 12) * 64 + 32) * 4
+	testing.expect(t, pixels[inside+1] >= 240)
+	testing.expect(t, pixels[halo+1] < 200)
+}

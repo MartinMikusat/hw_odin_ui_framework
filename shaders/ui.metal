@@ -33,6 +33,8 @@ struct VertexOut {
     float4 ramp_top [[flat]];
     float4 corner_radii;
     float2 effect_offset;
+    float2 hole_size [[flat]];
+    float hole_radius [[flat]];
     float border_thickness;
     float edge_softness;
     uint texture_mode [[flat]];
@@ -69,6 +71,8 @@ vertex VertexOut ui_vertex(
     output.ramp_top = instance.colors[2] * uniforms.opacity;
     output.corner_radii = instance.corner_radii;
     output.effect_offset = instance.effect_offset;
+    output.hole_size = instance.src.zw;
+    output.hole_radius = instance.src.x;
     output.border_thickness = instance.border_thickness;
     output.edge_softness = max(instance.edge_softness, 0.5);
     output.texture_mode = instance.texture_mode;
@@ -122,6 +126,18 @@ fragment float4 ui_fragment(
         input.corner_shape
     );
     float outer_alpha = 1.0 - smoothstep(-input.edge_softness, input.edge_softness, distance);
+    if (input.texture_mode == 3u && input.hole_size.x > 0.0 && input.hole_size.y > 0.0) {
+        float hole_r = max(input.hole_radius, 0.0);
+        float4 hole_radii = float4(hole_r, hole_r, hole_r, hole_r);
+        float hole_dist = rounded_distance(
+            input.local - input.effect_offset,
+            input.hole_size,
+            hole_radii,
+            input.corner_shape
+        );
+        float hole_inside = 1.0 - smoothstep(-0.5, 0.5, hole_dist);
+        outer_alpha *= (1.0 - hole_inside);
+    }
     if (input.texture_mode == 4u) {
         float shifted_distance = rounded_distance(
             input.local + input.effect_offset,

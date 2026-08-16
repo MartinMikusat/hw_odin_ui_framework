@@ -128,6 +128,34 @@ inset_shadow_records_direction_and_contour_test :: proc(t: ^testing.T) {
 }
 
 @(test)
+drop_shadow_records_dest_local_hole_test :: proc(t: ^testing.T) {
+	list: List
+	list_init(&list)
+	defer list_destroy(&list)
+
+	drop_shadow(
+		&list,
+		{4, 6, 40, 28},
+		{0, 0, 0, 0.4},
+		8,
+		3,
+		{6, 8, 24, 16},
+		7,
+		"shadow",
+		.Max,
+		.Squircle_Pill,
+	)
+
+	testing.expect_value(t, len(list.batches), 1)
+	instance := list.batches[0].instances[0]
+	testing.expect_value(t, instance.texture_mode, Texture_Mode.Shadow)
+	testing.expect_value(t, instance.effect_offset, [2]f32{6, 8})
+	testing.expect_value(t, instance.src, Rect{7, 0, 24, 16})
+	testing.expect_value(t, instance.corner_shape, Corner_Shape.Squircle_Pill)
+	testing.expect_value(t, list.batches[0].key.combine, Combine.Max)
+}
+
+@(test)
 clip_and_opacity_state_split_batches_without_reordering_test :: proc(t: ^testing.T) {
 	list: List
 	list_init(&list)

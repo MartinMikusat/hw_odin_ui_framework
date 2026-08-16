@@ -26,7 +26,8 @@ ordered draw buckets. It does not copy RADDBG source code.
 - `hal_wayland` defines the canonical Hal Wayland light/dark palette, semantic
   accents, typography, application chrome geometry, responsive action-bar
   layout, and square control styles.
-- `draw` records ordered rectangles, analytic inset shadows, vertical Y-band
+- `draw` records ordered rectangles, analytic inset shadows, drop-shadow
+  quads that punch a dest-local caster hole, vertical Y-band
   rings, three-stop Y-ramp borders, circular, squircle, and fuller pill-
   squircle corners, vector paths, glyphs, images, and external textures. Its
   path API

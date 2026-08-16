@@ -409,6 +409,32 @@ solid :: proc(
 	append_quad(list, instance, kind = .Solid, label = label, combine = combine)
 }
 
+drop_shadow :: proc(
+	list: ^List,
+	rect: Rect,
+	color: Color,
+	corner_radius: f32,
+	edge_softness: f32,
+	hole: Rect,
+	hole_radius: f32,
+	label := "shadow",
+	combine := Combine.Max,
+	corner_shape := Corner_Shape.Round,
+) {
+	if rect_is_empty(rect) || color[3] <= 0 {return}
+	instance := Quad_Instance{
+		dst = rect,
+		src = {hole_radius, 0, hole.w, hole.h},
+		colors = {color, color, color, color},
+		corner_radii = {corner_radius, corner_radius, corner_radius, corner_radius},
+		effect_offset = {hole.x, hole.y},
+		edge_softness = edge_softness,
+		texture_mode = .Shadow,
+		corner_shape = corner_shape,
+	}
+	append_quad(list, instance, kind = .Solid, label = label, combine = combine)
+}
+
 y_band :: proc(
 	list: ^List,
 	rect: Rect,
