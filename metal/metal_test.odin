@@ -239,10 +239,11 @@ offscreen_squircle_contour_and_border_are_distinct_from_round_test :: proc(t: ^t
 		{size = {96, 32, 1}},
 		0,
 	)
-	round_corner := (4*96+1)*4
-	squircle_corner := (4*96+33)*4
-	border_corner := (4*96+65)*4
-	border_center := (12*96+76)*4
+	// UI Y is up. Texture row = viewport_h - ui_y.
+	round_corner := ((32 - 4) * 96 + 1) * 4
+	squircle_corner := ((32 - 4) * 96 + 33) * 4
+	border_corner := ((32 - 4) * 96 + 65) * 4
+	border_center := ((32 - 12) * 96 + 76) * 4
 	testing.expect(t, pixels[round_corner] < 32)
 	testing.expect(t, pixels[squircle_corner] > 224)
 	testing.expect(t, pixels[border_corner] > 192)
