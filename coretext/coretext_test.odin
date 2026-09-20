@@ -182,10 +182,11 @@ dirty_rect_unions_independent_glyph_uploads_test :: proc(t: ^testing.T) {
 	testing.expect_value(t, page.dirty, Dirty_Rect{2, 1, 9, 7, true})
 }
 
-// The atlas must rasterize each glyph at its own bounding-box phase: with a
-// grid-aligned pen the bitmap then lands on the device pixel grid, and the
-// linear sampler reads the mask 1:1 instead of resampling every glyph by a
-// different subpixel amount (which reads as inconsistent glyph weight).
+// The atlas must rasterize each glyph at its own bounding-box phase and the
+// pen's quantized subpixel phase: the bitmap then lands on the device pixel
+// grid, and the linear sampler reads the mask 1:1 instead of resampling every
+// glyph by a different subpixel amount (which reads as inconsistent glyph
+// weight).
 @(test)
 atlas_bakes_the_glyph_bounding_box_phase_test :: proc(t: ^testing.T) {
 	value: Context
@@ -199,9 +200,6 @@ atlas_bakes_the_glyph_bounding_box_phase_test :: proc(t: ^testing.T) {
 
 	fractional := false
 	for shaped in run.glyphs {
-		glyph, ok := ensure_glyph(&value, shaped)
-		testing.expect(t, ok)
-
 		glyphs := [1]u16{shaped.glyph}
 		bounds_array: [1]Rect
 		_ = CTFontGetBoundingRectsForGlyphs(shaped.font, 0, raw_data(glyphs[:]), raw_data(bounds_array[:]), 1)
@@ -212,23 +210,48 @@ atlas_bakes_the_glyph_bounding_box_phase_test :: proc(t: ^testing.T) {
 		phase_y := bounds.origin.y - origin_floor_y
 		if phase_x > 0.01 || phase_y > 0.01 {fractional = true}
 
-		// The offset uses the floored origin, so the baked phase and the
-		// bitmap placement reconstruct the glyph's exact device position.
-		drawn_x := f64(shaped.position.x + glyph.offset.x) * f64(value.backing_scale)
-		expected_x := f64(shaped.position.x) * f64(value.backing_scale) + bounds.origin.x
-		testing.expect(t, abs(drawn_x + f64(GLYPH_PADDING) + phase_x - expected_x) < 0.01)
+		for phase_index in 0 ..< GLYPH_PHASES {
+			phase := u8(phase_index)
+			glyph, ok := ensure_glyph(&value, shaped, phase)
+			testing.expect(t, ok)
+			phase_offset := glyph_phase_offset(phase)
 
-		drawn_y := f64(shaped.position.y + glyph.offset.y) * f64(value.backing_scale)
-		expected_y := f64(shaped.position.y) * f64(value.backing_scale) + bounds.origin.y
-		testing.expect(t, abs(drawn_y + f64(GLYPH_PADDING) + phase_y - expected_y) < 0.01)
+			// The offset uses the floored origin and the cached phase, so the
+			// baked phases and the bitmap placement reconstruct the glyph's
+			// exact device position.
+			drawn_x := f64(shaped.position.x + glyph.offset.x) * f64(value.backing_scale)
+			expected_x := f64(shaped.position.x) * f64(value.backing_scale) + bounds.origin.x
+			testing.expect(t, abs(drawn_x + f64(GLYPH_PADDING) + phase_x + phase_offset - expected_x) < 0.01)
 
-		// The bitmap has room for the phase-shifted outline.
-		expected_width := int(bounds.size.width + phase_x + 0.999) + GLYPH_PADDING*2
-		expected_height := int(bounds.size.height + phase_y + 0.999) + GLYPH_PADDING*2
-		testing.expect(t, int(glyph.size.x * value.backing_scale + 0.5) >= expected_width)
-		testing.expect(t, int(glyph.size.y * value.backing_scale + 0.5) >= expected_height)
+			drawn_y := f64(shaped.position.y + glyph.offset.y) * f64(value.backing_scale)
+			expected_y := f64(shaped.position.y) * f64(value.backing_scale) + bounds.origin.y
+			testing.expect(t, abs(drawn_y + f64(GLYPH_PADDING) + phase_y - expected_y) < 0.01)
+
+			// The bitmap has room for the phase-shifted outline.
+			expected_width := int(bounds.size.width + phase_x + phase_offset + 0.999) + GLYPH_PADDING*2
+			expected_height := int(bounds.size.height + phase_y + 0.999) + GLYPH_PADDING*2
+			testing.expect(t, int(glyph.size.x * value.backing_scale + 0.5) >= expected_width)
+			testing.expect(t, int(glyph.size.y * value.backing_scale + 0.5) >= expected_height)
+		}
 	}
 	testing.expect(t, fractional, "the test string must contain a glyph with a fractional bounding-box origin")
+}
+
+@(test)
+glyph_subpixel_phase_and_pixel_snap_test :: proc(t: ^testing.T) {
+	// Quantization picks the nearest of four phases and wraps 1.0 to phase 0.
+	testing.expect_value(t, glyph_phase_index(2, 0.0), u8(0))
+	testing.expect_value(t, glyph_phase_index(2, 0.13), u8(1))
+	testing.expect_value(t, glyph_phase_index(2, 0.26), u8(2))
+	testing.expect_value(t, glyph_phase_index(2, 0.40), u8(3))
+	testing.expect_value(t, glyph_phase_index(2, 0.49), u8(0))
+	testing.expect_value(t, glyph_phase_index(2, -0.13), u8(3))
+	testing.expect_value(t, glyph_phase_offset(3), 0.75)
+
+	// Snapping moves a coordinate to the nearest device pixel.
+	testing.expect_value(t, snap_to_pixel(2, 11.1599), f32(11))
+	testing.expect_value(t, snap_to_pixel(2, 11.3), f32(11.5))
+	testing.expect_value(t, snap_to_pixel(1, 4.6), f32(5))
 }
 
 @(test)

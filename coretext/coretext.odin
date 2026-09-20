@@ -82,6 +82,9 @@ ALPHA_PAGE_LIMIT :: 4
 COLOR_PAGE_SIZE :: 1024
 COLOR_PAGE_LIMIT :: 2
 GLYPH_PADDING :: 2
+// Horizontal subpixel phases the atlas keeps per glyph. Four phases bound the
+// sampling error at 1/8 device pixel.
+GLYPH_PHASES :: 4
 SHAPE_CACHE_LIMIT :: 4096
 SHAPE_CACHE_STALE_FRAMES :: u64(240)
 
@@ -128,6 +131,7 @@ Glyph_Key :: struct {
 	font_hash: uint,
 	glyph:     u16,
 	format:    Atlas_Format,
+	phase:     u8,
 }
 
 Atlas_Glyph :: struct {
@@ -689,32 +693,57 @@ find_page :: proc(value: ^Context, format: Atlas_Format, width, height: int) -> 
 	return index, x, y, allocated
 }
 
-ensure_glyph :: proc(value: ^Context, shaped: Shaped_Glyph) -> (Atlas_Glyph, bool) {
+// glyph_phase_index quantizes a pen's horizontal subpixel phase into the glyph
+// cache key, so the bitmap can be rasterized at the phase it is sampled with.
+glyph_phase_index :: proc(backing_scale, pen_x: f32) -> u8 {
+	scaled := f64(pen_x) * f64(max(backing_scale, 1))
+	phase := scaled - math.floor(scaled)
+	index := int(phase * f64(GLYPH_PHASES) + 0.5)
+	if index == GLYPH_PHASES {
+		index = 0 // a phase rounding up to 1.0 is the next pixel's phase 0
+	}
+	return u8(index)
+}
+
+// glyph_phase_offset is the cached phase index in device pixels.
+glyph_phase_offset :: proc(phase: u8) -> f64 {
+	return f64(phase) / f64(GLYPH_PHASES)
+}
+
+// snap_to_pixel rounds a logical coordinate to the device pixel grid.
+snap_to_pixel :: proc(backing_scale, value: f32) -> f32 {
+	scale := max(backing_scale, 1)
+	return f32(math.round(f64(value) * f64(scale))) / scale
+}
+
+ensure_glyph :: proc(value: ^Context, shaped: Shaped_Glyph, phase: u8) -> (Atlas_Glyph, bool) {
+	assert(phase < GLYPH_PHASES, "glyph phase out of range")
 	format := Atlas_Format.Alpha
 	if CTFontGetSymbolicTraits(shaped.font) & COLOR_GLYPH_TRAIT != 0 {format = .Color}
-	key := Glyph_Key{CFHash(shaped.font), shaped.glyph, format}
+	key := Glyph_Key{CFHash(shaped.font), shaped.glyph, format, phase}
 	if glyph, ok := value.glyphs[key]; ok && glyph.generation == value.generation {return glyph, true}
 	glyphs := [1]u16{shaped.glyph}
 	bounds_array: [1]Rect
 	_ = CTFontGetBoundingRectsForGlyphs(shaped.font, 0, raw_data(glyphs[:]), raw_data(bounds_array[:]), 1)
 	bounds := bounds_array[0]
-	// Bake the glyph's bounding-box phase into the bitmap. A glyph's origin is
-	// generally fractional (its left-side bearing) while the quad is drawn at
-	// pen + origin; rasterizing the outline at an integer pixel instead makes
-	// the linear sampler resample each glyph by its own subpixel amount, which
-	// reads as inconsistent weight between glyphs. Placing the outline at
-	// padding + frac(origin) and compensating in the offset keeps the drawn
-	// position identical while the bitmap lands on the device pixel grid
-	// whenever the pen does.
+	// Bake the glyph's bounding-box phase and the pen's quantized subpixel
+	// phase into the bitmap. A glyph's origin is generally fractional (its
+	// left-side bearing) while the quad is drawn at pen + origin; rasterizing
+	// the outline at an integer pixel instead makes the linear sampler resample
+	// each glyph by its own subpixel amount, which reads as inconsistent weight
+	// between glyphs. Placing the outline at padding + frac(origin) + phase and
+	// compensating in the offset keeps the drawn position identical while the
+	// bitmap lands on the device pixel grid for the sampled phase.
+	phase_offset := glyph_phase_offset(phase)
 	origin_floor_x := math.floor(bounds.origin.x)
 	origin_floor_y := math.floor(bounds.origin.y)
-	width := max(1, int(bounds.size.width+(bounds.origin.x-origin_floor_x)+0.999))+GLYPH_PADDING*2
+	width := max(1, int(bounds.size.width+(bounds.origin.x-origin_floor_x)+phase_offset+0.999))+GLYPH_PADDING*2
 	height := max(1, int(bounds.size.height+(bounds.origin.y-origin_floor_y)+0.999))+GLYPH_PADDING*2
 	page_index, x, y, ok := find_page(value, format, width, height)
 	if !ok {return {}, false}
 	page := &value.pages[page_index]
 	positions := [1]Point{{
-		f64(x+GLYPH_PADDING)-origin_floor_x,
+		f64(x+GLYPH_PADDING)-origin_floor_x+phase_offset,
 		f64(y+GLYPH_PADDING)-origin_floor_y,
 	}}
 	CTFontDrawGlyphs(shaped.font, raw_data(glyphs[:]), raw_data(positions[:]), 1, page.graphics)
@@ -727,7 +756,7 @@ ensure_glyph :: proc(value: ^Context, shaped: Shaped_Glyph) -> (Atlas_Glyph, boo
 		page = page_index,
 		pixel_rect = pixel_rect,
 		offset = {
-			f32(origin_floor_x-f64(GLYPH_PADDING))/value.backing_scale,
+			f32(origin_floor_x-f64(GLYPH_PADDING)-phase_offset)/value.backing_scale,
 			f32(origin_floor_y-f64(GLYPH_PADDING))/value.backing_scale,
 		},
 		size = {f32(width)/value.backing_scale, f32(height)/value.backing_scale},
@@ -792,8 +821,15 @@ emit_shaped_run :: proc(
 	label: string,
 ) {
 	if value == nil || list == nil || run == nil {return}
+	scale := max(value.backing_scale, 1)
 	for shaped in run.glyphs {
-		glyph, ok := ensure_glyph(value, shaped)
+		// The pen's horizontal subpixel phase selects the cached bitmap phase
+		// and the baseline snaps to the device pixel grid: advances stay exact
+		// while the sampler reads each bitmap 1:1.
+		pen_x := origin.x + shaped.position.x
+		pen_y := origin.y + shaped.position.y
+		phase := glyph_phase_index(scale, pen_x)
+		glyph, ok := ensure_glyph(value, shaped, phase)
 		if !ok || glyph.page < 0 || glyph.page >= len(value.pages) {continue}
 		page := &value.pages[glyph.page]
 		texture := bind_page(value, page)
@@ -801,8 +837,8 @@ emit_shaped_run :: proc(
 		mode := draw.Texture_Mode.Alpha_Mask
 		if page.format == .Color {mode = .Color}
 		dst := draw.Rect{
-			origin.x+shaped.position.x+glyph.offset.x,
-			origin.y+shaped.position.y+glyph.offset.y,
+			pen_x+glyph.offset.x,
+			snap_to_pixel(scale, pen_y)+glyph.offset.y,
 			glyph.size.x,
 			glyph.size.y,
 		}

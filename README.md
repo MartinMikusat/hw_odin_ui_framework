@@ -35,7 +35,10 @@ ordered draw buckets. It does not copy RADDBG source code.
   `vendor:nanovg` package in the active Odin toolchain.
 - `diagnostics` captures stable control snapshots, ordered render traces, and
   fixed-capacity CPU/GPU performance histories without allocating per frame.
-- `coretext` shapes text and supplies glyphs to the draw stream.
+- `coretext` shapes text and supplies glyphs to the draw stream. Its glyph
+  atlas bakes each glyph's bounding-box phase and caches four horizontal
+  subpixel phases, and baselines snap to the device pixel grid, so text stays
+  crisp at fractional positions instead of resampling the glyph masks.
 - `metal` encodes the draw stream into Metal. `encode` writes into a caller-owned
   encoder. `encode_to_drawable` owns the pass list so `Combine.Max` batches can
   max-blend offscreen and then over-composite onto the canvas.
