@@ -7,7 +7,8 @@ Frame_Timer :: struct {
 	native: rawptr,
 }
 
-foreign import frame_timer_objc "system:objc"
+// Foundation reexports the Objective-C runtime (as in Odin's Foundation bindings).
+foreign import frame_timer_objc "system:Foundation.framework"
 foreign frame_timer_objc {
 	objc_getClass    :: proc "c" (name: cstring) -> rawptr ---
 	sel_registerName :: proc "c" (name: cstring) -> rawptr ---

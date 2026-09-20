@@ -10,7 +10,8 @@ import Metal "vendor:darwin/Metal"
 Object :: rawptr
 Selector :: rawptr
 
-foreign import objc "system:objc"
+// Foundation reexports the Objective-C runtime (as in Odin's Foundation bindings).
+foreign import objc "system:Foundation.framework"
 foreign objc {
 	objc_getClass    :: proc "c" (name: cstring) -> Object ---
 	sel_registerName :: proc "c" (name: cstring) -> Selector ---
