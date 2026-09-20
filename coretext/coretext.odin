@@ -1,6 +1,7 @@
 package coretext
 
 import "core:hash"
+import "core:math"
 import "core:mem"
 import "core:strings"
 import CF "core:sys/darwin/CoreFoundation"
@@ -697,14 +698,24 @@ ensure_glyph :: proc(value: ^Context, shaped: Shaped_Glyph) -> (Atlas_Glyph, boo
 	bounds_array: [1]Rect
 	_ = CTFontGetBoundingRectsForGlyphs(shaped.font, 0, raw_data(glyphs[:]), raw_data(bounds_array[:]), 1)
 	bounds := bounds_array[0]
-	width := max(1, int(bounds.size.width+0.999))+GLYPH_PADDING*2
-	height := max(1, int(bounds.size.height+0.999))+GLYPH_PADDING*2
+	// Bake the glyph's bounding-box phase into the bitmap. A glyph's origin is
+	// generally fractional (its left-side bearing) while the quad is drawn at
+	// pen + origin; rasterizing the outline at an integer pixel instead makes
+	// the linear sampler resample each glyph by its own subpixel amount, which
+	// reads as inconsistent weight between glyphs. Placing the outline at
+	// padding + frac(origin) and compensating in the offset keeps the drawn
+	// position identical while the bitmap lands on the device pixel grid
+	// whenever the pen does.
+	origin_floor_x := math.floor(bounds.origin.x)
+	origin_floor_y := math.floor(bounds.origin.y)
+	width := max(1, int(bounds.size.width+(bounds.origin.x-origin_floor_x)+0.999))+GLYPH_PADDING*2
+	height := max(1, int(bounds.size.height+(bounds.origin.y-origin_floor_y)+0.999))+GLYPH_PADDING*2
 	page_index, x, y, ok := find_page(value, format, width, height)
 	if !ok {return {}, false}
 	page := &value.pages[page_index]
 	positions := [1]Point{{
-		f64(x+GLYPH_PADDING)-bounds.origin.x,
-		f64(y+GLYPH_PADDING)-bounds.origin.y,
+		f64(x+GLYPH_PADDING)-origin_floor_x,
+		f64(y+GLYPH_PADDING)-origin_floor_y,
 	}}
 	CTFontDrawGlyphs(shaped.font, raw_data(glyphs[:]), raw_data(positions[:]), 1, page.graphics)
 	// Quartz bitmap memory stores the top row first while its default user
@@ -716,8 +727,8 @@ ensure_glyph :: proc(value: ^Context, shaped: Shaped_Glyph) -> (Atlas_Glyph, boo
 		page = page_index,
 		pixel_rect = pixel_rect,
 		offset = {
-			f32(bounds.origin.x-f64(GLYPH_PADDING))/value.backing_scale,
-			f32(bounds.origin.y-f64(GLYPH_PADDING))/value.backing_scale,
+			f32(origin_floor_x-f64(GLYPH_PADDING))/value.backing_scale,
+			f32(origin_floor_y-f64(GLYPH_PADDING))/value.backing_scale,
 		},
 		size = {f32(width)/value.backing_scale, f32(height)/value.backing_scale},
 		generation = value.generation,

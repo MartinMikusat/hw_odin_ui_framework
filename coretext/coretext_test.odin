@@ -1,5 +1,6 @@
 package coretext
 
+import "core:math"
 import "core:strings"
 import "core:testing"
 import ui "ui_framework:core"
@@ -179,6 +180,55 @@ dirty_rect_unions_independent_glyph_uploads_test :: proc(t: ^testing.T) {
 	mark_dirty(&page, {2, 3, 4, 5, true})
 	mark_dirty(&page, {8, 1, 3, 4, true})
 	testing.expect_value(t, page.dirty, Dirty_Rect{2, 1, 9, 7, true})
+}
+
+// The atlas must rasterize each glyph at its own bounding-box phase: with a
+// grid-aligned pen the bitmap then lands on the device pixel grid, and the
+// linear sampler reads the mask 1:1 instead of resampling every glyph by a
+// different subpixel amount (which reads as inconsistent glyph weight).
+@(test)
+atlas_bakes_the_glyph_bounding_box_phase_test :: proc(t: ^testing.T) {
+	value: Context
+	context_init(&value)
+	defer context_destroy(&value)
+	register_font(&value, ui.Font_Handle(1), "Menlo-Regular")
+	begin_frame(&value, 2, Atlas_IO{create = test_atlas_create, bind = test_atlas_bind})
+	run := shape(&value, ui.Font_Handle(1), "0147.%M8", 12, 0, 0, false)
+	testing.expect(t, run != nil)
+	if run == nil {return}
+
+	fractional := false
+	for shaped in run.glyphs {
+		glyph, ok := ensure_glyph(&value, shaped)
+		testing.expect(t, ok)
+
+		glyphs := [1]u16{shaped.glyph}
+		bounds_array: [1]Rect
+		_ = CTFontGetBoundingRectsForGlyphs(shaped.font, 0, raw_data(glyphs[:]), raw_data(bounds_array[:]), 1)
+		bounds := bounds_array[0]
+		origin_floor_x := math.floor(bounds.origin.x)
+		origin_floor_y := math.floor(bounds.origin.y)
+		phase_x := bounds.origin.x - origin_floor_x
+		phase_y := bounds.origin.y - origin_floor_y
+		if phase_x > 0.01 || phase_y > 0.01 {fractional = true}
+
+		// The offset uses the floored origin, so the baked phase and the
+		// bitmap placement reconstruct the glyph's exact device position.
+		drawn_x := f64(shaped.position.x + glyph.offset.x) * f64(value.backing_scale)
+		expected_x := f64(shaped.position.x) * f64(value.backing_scale) + bounds.origin.x
+		testing.expect(t, abs(drawn_x + f64(GLYPH_PADDING) + phase_x - expected_x) < 0.01)
+
+		drawn_y := f64(shaped.position.y + glyph.offset.y) * f64(value.backing_scale)
+		expected_y := f64(shaped.position.y) * f64(value.backing_scale) + bounds.origin.y
+		testing.expect(t, abs(drawn_y + f64(GLYPH_PADDING) + phase_y - expected_y) < 0.01)
+
+		// The bitmap has room for the phase-shifted outline.
+		expected_width := int(bounds.size.width + phase_x + 0.999) + GLYPH_PADDING*2
+		expected_height := int(bounds.size.height + phase_y + 0.999) + GLYPH_PADDING*2
+		testing.expect(t, int(glyph.size.x * value.backing_scale + 0.5) >= expected_width)
+		testing.expect(t, int(glyph.size.y * value.backing_scale + 0.5) >= expected_height)
+	}
+	testing.expect(t, fractional, "the test string must contain a glyph with a fractional bounding-box origin")
 }
 
 @(test)
