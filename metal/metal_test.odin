@@ -1,9 +1,41 @@
 package metal
 
+import "core:os"
 import "core:testing"
 import ui "ui_framework:core"
 import coretext "ui_framework:coretext"
 import draw "ui_framework:draw"
+
+// test.sh compiles shaders/ui.metal into the working directory before testing.
+TEST_METALLIB_PATH :: "ui.metallib"
+
+test_renderer_init :: proc(t: ^testing.T, renderer: ^Renderer, device: Object) -> bool {
+	metallib, read_error := os.read_entire_file(TEST_METALLIB_PATH, context.allocator)
+	if !testing.expectf(t, read_error == nil, "read %s: %v", TEST_METALLIB_PATH, read_error) {return false}
+	defer delete(metallib)
+	if !renderer_init(renderer, device, metallib_data = metallib) {return false}
+	return testing.expect(t, !renderer.runtime_compiled)
+}
+
+@(test)
+renderer_requires_precompiled_library_unless_fallback_is_requested_test :: proc(t: ^testing.T) {
+	if !load_objc() {testing.expect(t, false); return}
+	device := MTLCreateSystemDefaultDevice()
+	if device == nil {testing.expect(t, false); return}
+	defer release(device)
+
+	renderer: Renderer
+	testing.expect(t, !renderer_init(&renderer, device))
+	testing.expect(t, renderer.pipeline == nil)
+	invalid := []u8{0, 1, 2, 3}
+	testing.expect(t, !renderer_init(&renderer, device, metallib_data = invalid))
+	testing.expect(t, renderer.pipeline == nil)
+
+	testing.expect(t, test_renderer_init(t, &renderer, device))
+	testing.expect(t, renderer.pipeline != nil)
+	testing.expect(t, renderer.path_pipeline != nil)
+	renderer_destroy(&renderer)
+}
 
 @(test)
 batch_uniforms_match_metal_constant_layout_test :: proc(t: ^testing.T) {
@@ -34,7 +66,7 @@ offscreen_vector_paths_render_convex_compound_and_stroked_geometry_test :: proc(
 	device := MTLCreateSystemDefaultDevice()
 	if device == nil {testing.expect(t, false); return}
 	renderer: Renderer
-	testing.expect(t, renderer_init(&renderer, device, allow_runtime_fallback = true))
+	testing.expect(t, test_renderer_init(t, &renderer, device))
 	defer renderer_destroy(&renderer)
 
 	descriptor := msg_id_u_u_u_bool(
@@ -112,7 +144,7 @@ offscreen_composition_preserves_submission_order_test :: proc(t: ^testing.T) {
 	device := MTLCreateSystemDefaultDevice()
 	if device == nil {testing.expect(t, false); return}
 	renderer: Renderer
-	testing.expect(t, renderer_init(&renderer, device, allow_runtime_fallback = true))
+	testing.expect(t, test_renderer_init(t, &renderer, device))
 	defer renderer_destroy(&renderer)
 
 	descriptor := msg_id_u_u_u_bool(
@@ -175,7 +207,7 @@ offscreen_squircle_contour_and_border_are_distinct_from_round_test :: proc(t: ^t
 	device := MTLCreateSystemDefaultDevice()
 	if device == nil {testing.expect(t, false); return}
 	renderer: Renderer
-	testing.expect(t, renderer_init(&renderer, device, allow_runtime_fallback = true))
+	testing.expect(t, test_renderer_init(t, &renderer, device))
 	defer renderer_destroy(&renderer)
 
 	descriptor := msg_id_u_u_u_bool(
@@ -256,7 +288,7 @@ offscreen_y_band_keeps_top_half_ring_and_clears_the_mid :: proc(t: ^testing.T) {
 	device := MTLCreateSystemDefaultDevice()
 	if device == nil {testing.expect(t, false); return}
 	renderer: Renderer
-	testing.expect(t, renderer_init(&renderer, device, allow_runtime_fallback = true))
+	testing.expect(t, test_renderer_init(t, &renderer, device))
 	defer renderer_destroy(&renderer)
 
 	descriptor := msg_id_u_u_u_bool(
@@ -325,7 +357,7 @@ offscreen_y_ramp_ring_fades_from_top_highlight_to_bottom_glow_test :: proc(t: ^t
 	device := MTLCreateSystemDefaultDevice()
 	if device == nil {testing.expect(t, false); return}
 	renderer: Renderer
-	testing.expect(t, renderer_init(&renderer, device, allow_runtime_fallback = true))
+	testing.expect(t, test_renderer_init(t, &renderer, device))
 	defer renderer_destroy(&renderer)
 
 	descriptor := msg_id_u_u_u_bool(
@@ -397,7 +429,7 @@ offscreen_inset_shadow_stays_clipped_and_favors_its_offset_edge_test :: proc(t: 
 	device := MTLCreateSystemDefaultDevice()
 	if device == nil {testing.expect(t, false); return}
 	renderer: Renderer
-	testing.expect(t, renderer_init(&renderer, device, allow_runtime_fallback = true))
+	testing.expect(t, test_renderer_init(t, &renderer, device))
 	defer renderer_destroy(&renderer)
 
 	descriptor := msg_id_u_u_u_bool(
@@ -463,7 +495,7 @@ coretext_glyph_atlas_composes_background_and_modal_text_in_one_stream_test :: pr
 	device := MTLCreateSystemDefaultDevice()
 	if device == nil {testing.expect(t, false); return}
 	renderer: Renderer
-	testing.expect(t, renderer_init(&renderer, device, allow_runtime_fallback = true))
+	testing.expect(t, test_renderer_init(t, &renderer, device))
 	defer renderer_destroy(&renderer)
 	begin_texture_frame(&renderer)
 
@@ -596,7 +628,7 @@ overlapping_max_shadows_keep_peak_coverage_test :: proc(t: ^testing.T) {
 	device := MTLCreateSystemDefaultDevice()
 	if device == nil {testing.expect(t, false); return}
 	renderer: Renderer
-	testing.expect(t, renderer_init(&renderer, device, allow_runtime_fallback = true))
+	testing.expect(t, test_renderer_init(t, &renderer, device))
 	defer renderer_destroy(&renderer)
 
 	descriptor := msg_id_u_u_u_bool(
@@ -674,7 +706,7 @@ offscreen_drop_shadow_punches_caster_and_keeps_the_halo_test :: proc(t: ^testing
 	device := MTLCreateSystemDefaultDevice()
 	if device == nil {testing.expect(t, false); return}
 	renderer: Renderer
-	testing.expect(t, renderer_init(&renderer, device, allow_runtime_fallback = true))
+	testing.expect(t, test_renderer_init(t, &renderer, device))
 	defer renderer_destroy(&renderer)
 
 	descriptor := msg_id_u_u_u_bool(

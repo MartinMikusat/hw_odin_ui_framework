@@ -5,6 +5,7 @@ ROOT=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 TEMP="$ROOT/build/test"
 mkdir -p "$TEMP"
 cd "$TEMP"
+"$ROOT/scripts/build-metallib.sh" "$TEMP/ui.metallib"
 
 hw-odin test "$ROOT/draw" -collection:ui_framework="$ROOT" -vet -strict-style -define:ODIN_TEST_FAIL_ON_BAD_MEMORY=true -no-threaded-checker
 hw-odin test "$ROOT/core" -collection:ui_framework="$ROOT" -vet -strict-style -define:ODIN_TEST_FAIL_ON_BAD_MEMORY=true -no-threaded-checker

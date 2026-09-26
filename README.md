@@ -62,6 +62,17 @@ import ui "ui_framework:core"
 import draw "ui_framework:draw"
 ```
 
+## Shader library
+
+Applications ship shaders precompiled. Build `ui.metallib` with
+`scripts/build-metallib.sh OUTPUT.metallib` as part of the application build and
+pass it to `metal.renderer_init` as `metallib_data` (for example an `#load`ed
+file) or as `metallib_path`. `allow_runtime_fallback` defaults to `false`; with
+it, a missing or invalid library fails initialization instead of compiling
+`shaders/ui.metal` at startup. The runtime-source fallback remains only for
+applications that have not yet moved to a precompiled library and is scheduled
+for removal. Changing `shaders/ui.metal` requires rebuilding the library.
+
 ## Frame contract
 
 1. Queue input or mutate application state, then call `request_frame` with the

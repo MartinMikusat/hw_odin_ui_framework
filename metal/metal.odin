@@ -23,7 +23,14 @@ foreign core_foundation {
 	CFRelease                 :: proc "c" (value: rawptr) ---
 }
 
+foreign import dispatch "system:System"
+foreign dispatch {
+	dispatch_data_create :: proc "c" (buffer: rawptr, size: uint, queue: rawptr, destructor: rawptr) -> Object ---
+}
+
 UTF8_ENCODING :: u32(0x08000100)
+// Development-only fallback for applications not yet shipping ui.metallib.
+// Production shaders are precompiled with scripts/build-metallib.sh.
 RUNTIME_SHADER_SOURCE :: #load("../shaders/ui.metal")
 
 MTL_Origin :: struct {
@@ -245,8 +252,22 @@ release :: proc(value: Object) {
 	if value != nil {msg_void(value, sel_registerName("release"))}
 }
 
-load_library :: proc(renderer: ^Renderer, metallib_path: string, allow_runtime_fallback: bool) -> Object {
+load_library :: proc(
+	renderer: ^Renderer,
+	metallib_path: string,
+	metallib_data: []u8,
+	allow_runtime_fallback: bool,
+) -> Object {
 	error: Object
+	if len(metallib_data) > 0 {
+		// A nil destructor makes dispatch copy the bytes; the caller keeps its slice.
+		data := dispatch_data_create(raw_data(metallib_data), uint(len(metallib_data)), nil, nil)
+		if data == nil {return nil}
+		defer release(data)
+		library := msg_id_id_error(renderer.device, sel_registerName("newLibraryWithData:error:"), data, &error)
+		if library != nil {return library}
+		if !allow_runtime_fallback {return nil}
+	}
 	if len(metallib_path) > 0 {
 		path := nsstring(metallib_path)
 		if path != nil {
@@ -453,14 +474,15 @@ renderer_init :: proc(
 	device: Object,
 	metallib_path := "",
 	pixel_format := uint(80),
-	allow_runtime_fallback := true,
+	allow_runtime_fallback := false,
 	allocator := context.allocator,
+	metallib_data: []u8 = nil,
 ) -> bool {
 	assert(renderer != nil)
 	if device == nil || !load_objc() {return false}
 	renderer^ = Renderer{allocator = allocator, device = device, pixel_format = pixel_format}
 	renderer.textures = make([dynamic]Object, allocator)
-	library := load_library(renderer, metallib_path, allow_runtime_fallback)
+	library := load_library(renderer, metallib_path, metallib_data, allow_runtime_fallback)
 	if library == nil {renderer_destroy(renderer); return false}
 	renderer.pipeline = create_pipeline(renderer, library, pixel_format)
 	renderer.stencil_pipeline = create_pipeline(renderer, library, pixel_format, stencil_enabled = true)
