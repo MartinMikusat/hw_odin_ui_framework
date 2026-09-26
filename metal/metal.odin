@@ -29,9 +29,6 @@ foreign dispatch {
 }
 
 UTF8_ENCODING :: u32(0x08000100)
-// Development-only fallback for applications not yet shipping ui.metallib.
-// Production shaders are precompiled with scripts/build-metallib.sh.
-RUNTIME_SHADER_SOURCE :: #load("../shaders/ui.metal")
 
 MTL_Origin :: struct {
 	x, y, z: uint,
@@ -118,7 +115,6 @@ Renderer :: struct {
 	linear_sampler:   Object,
 	nearest_sampler:  Object,
 	textures:         [dynamic]Object,
-	runtime_compiled: bool,
 	pixel_format:     uint,
 	shadow_texture:   Object,
 	shadow_width:     uint,
@@ -181,11 +177,6 @@ msg_id_id :: proc(receiver: Object, selector: Selector, value: Object) -> Object
 msg_id_id_error :: proc(receiver: Object, selector: Selector, value: Object, error: ^Object) -> Object {
 	p := cast(proc "c" (_: Object, _: Selector, _: Object, _: ^Object) -> Object)send_address
 	return p(receiver, selector, value, error)
-}
-
-msg_id_source_error :: proc(receiver: Object, selector: Selector, source, options: Object, error: ^Object) -> Object {
-	p := cast(proc "c" (_: Object, _: Selector, _: Object, _: Object, _: ^Object) -> Object)send_address
-	return p(receiver, selector, source, options, error)
 }
 
 msg_id_descriptor_error :: proc(receiver: Object, selector: Selector, descriptor: Object, error: ^Object) -> Object {
@@ -257,48 +248,22 @@ release :: proc(value: Object) {
 	if value != nil {msg_void(value, sel_registerName("release"))}
 }
 
-load_library :: proc(
-	renderer: ^Renderer,
-	metallib_path: string,
-	metallib_data: []u8,
-	allow_runtime_fallback: bool,
-) -> Object {
+// Loads the precompiled shader library from memory or from a file. There is no
+// source-compilation path: a missing or invalid library fails initialization.
+load_library :: proc(renderer: ^Renderer, metallib_path: string, metallib_data: []u8) -> Object {
 	error: Object
 	if len(metallib_data) > 0 {
 		// A nil destructor makes dispatch copy the bytes; the caller keeps its slice.
 		data := dispatch_data_create(raw_data(metallib_data), uint(len(metallib_data)), nil, nil)
 		if data == nil {return nil}
 		defer release(data)
-		library := msg_id_id_error(renderer.device, sel_registerName("newLibraryWithData:error:"), data, &error)
-		if library != nil {return library}
-		if !allow_runtime_fallback {return nil}
+		return msg_id_id_error(renderer.device, sel_registerName("newLibraryWithData:error:"), data, &error)
 	}
-	if len(metallib_path) > 0 {
-		path := nsstring(metallib_path)
-		if path != nil {
-			library := msg_id_id_error(
-				renderer.device,
-				sel_registerName("newLibraryWithFile:error:"),
-				path,
-				&error,
-			)
-			CFRelease(path)
-			if library != nil {return library}
-		}
-	}
-	if !allow_runtime_fallback {return nil}
-	source := nsstring(string(RUNTIME_SHADER_SOURCE))
-	if source == nil {return nil}
-	defer CFRelease(source)
-	library := msg_id_source_error(
-		renderer.device,
-		sel_registerName("newLibraryWithSource:options:error:"),
-		source,
-		nil,
-		&error,
-	)
-	if library != nil {renderer.runtime_compiled = true}
-	return library
+	if len(metallib_path) == 0 {return nil}
+	path := nsstring(metallib_path)
+	if path == nil {return nil}
+	defer CFRelease(path)
+	return msg_id_id_error(renderer.device, sel_registerName("newLibraryWithFile:error:"), path, &error)
 }
 
 create_pipeline :: proc(
@@ -479,7 +444,6 @@ renderer_init :: proc(
 	device: Object,
 	metallib_path := "",
 	pixel_format := uint(80),
-	allow_runtime_fallback := false,
 	allocator := context.allocator,
 	metallib_data: []u8 = nil,
 ) -> bool {
@@ -490,7 +454,7 @@ renderer_init :: proc(
 	renderer.persistent = make([dynamic]Object, allocator)
 	renderer.persistent_free = make([dynamic]u32, allocator)
 	renderer.atlas_handles = make(map[u64]draw.Texture_Handle, allocator)
-	library := load_library(renderer, metallib_path, metallib_data, allow_runtime_fallback)
+	library := load_library(renderer, metallib_path, metallib_data)
 	if library == nil {renderer_destroy(renderer); return false}
 	renderer.pipeline = create_pipeline(renderer, library, pixel_format)
 	renderer.stencil_pipeline = create_pipeline(renderer, library, pixel_format, stencil_enabled = true)

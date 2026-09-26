@@ -13,12 +13,11 @@ test_renderer_init :: proc(t: ^testing.T, renderer: ^Renderer, device: Object) -
 	metallib, read_error := os.read_entire_file(TEST_METALLIB_PATH, context.allocator)
 	if !testing.expectf(t, read_error == nil, "read %s: %v", TEST_METALLIB_PATH, read_error) {return false}
 	defer delete(metallib)
-	if !renderer_init(renderer, device, metallib_data = metallib) {return false}
-	return testing.expect(t, !renderer.runtime_compiled)
+	return renderer_init(renderer, device, metallib_data = metallib)
 }
 
 @(test)
-renderer_requires_precompiled_library_unless_fallback_is_requested_test :: proc(t: ^testing.T) {
+renderer_requires_a_precompiled_library_test :: proc(t: ^testing.T) {
 	if !load_objc() {testing.expect(t, false); return}
 	device := MTLCreateSystemDefaultDevice()
 	if device == nil {testing.expect(t, false); return}
