@@ -132,92 +132,92 @@ load_objc :: proc() -> bool {
 }
 
 msg_id :: proc(receiver: Object, selector: Selector) -> Object {
-	p := transmute(proc "c" (_: Object, _: Selector) -> Object)send_address
+	p := cast(proc "c" (_: Object, _: Selector) -> Object)send_address
 	return p(receiver, selector)
 }
 
 msg_void :: proc(receiver: Object, selector: Selector) {
-	p := transmute(proc "c" (_: Object, _: Selector))send_address
+	p := cast(proc "c" (_: Object, _: Selector))send_address
 	p(receiver, selector)
 }
 
 msg_void_id :: proc(receiver: Object, selector: Selector, value: Object) {
-	p := transmute(proc "c" (_: Object, _: Selector, _: Object))send_address
+	p := cast(proc "c" (_: Object, _: Selector, _: Object))send_address
 	p(receiver, selector, value)
 }
 
 msg_void_id_u :: proc(receiver: Object, selector: Selector, value: Object, index: uint) {
-	p := transmute(proc "c" (_: Object, _: Selector, _: Object, _: uint))send_address
+	p := cast(proc "c" (_: Object, _: Selector, _: Object, _: uint))send_address
 	p(receiver, selector, value, index)
 }
 
 msg_void_bool :: proc(receiver: Object, selector: Selector, value: bool) {
-	p := transmute(proc "c" (_: Object, _: Selector, _: bool))send_address
+	p := cast(proc "c" (_: Object, _: Selector, _: bool))send_address
 	p(receiver, selector, value)
 }
 
 msg_void_u :: proc(receiver: Object, selector: Selector, value: uint) {
-	p := transmute(proc "c" (_: Object, _: Selector, _: uint))send_address
+	p := cast(proc "c" (_: Object, _: Selector, _: uint))send_address
 	p(receiver, selector, value)
 }
 
 msg_id_id :: proc(receiver: Object, selector: Selector, value: Object) -> Object {
-	p := transmute(proc "c" (_: Object, _: Selector, _: Object) -> Object)send_address
+	p := cast(proc "c" (_: Object, _: Selector, _: Object) -> Object)send_address
 	return p(receiver, selector, value)
 }
 
 msg_id_id_error :: proc(receiver: Object, selector: Selector, value: Object, error: ^Object) -> Object {
-	p := transmute(proc "c" (_: Object, _: Selector, _: Object, _: ^Object) -> Object)send_address
+	p := cast(proc "c" (_: Object, _: Selector, _: Object, _: ^Object) -> Object)send_address
 	return p(receiver, selector, value, error)
 }
 
 msg_id_source_error :: proc(receiver: Object, selector: Selector, source, options: Object, error: ^Object) -> Object {
-	p := transmute(proc "c" (_: Object, _: Selector, _: Object, _: Object, _: ^Object) -> Object)send_address
+	p := cast(proc "c" (_: Object, _: Selector, _: Object, _: Object, _: ^Object) -> Object)send_address
 	return p(receiver, selector, source, options, error)
 }
 
 msg_id_descriptor_error :: proc(receiver: Object, selector: Selector, descriptor: Object, error: ^Object) -> Object {
-	p := transmute(proc "c" (_: Object, _: Selector, _: Object, _: ^Object) -> Object)send_address
+	p := cast(proc "c" (_: Object, _: Selector, _: Object, _: ^Object) -> Object)send_address
 	return p(receiver, selector, descriptor, error)
 }
 
 msg_id_u :: proc(receiver: Object, selector: Selector, value: uint) -> Object {
-	p := transmute(proc "c" (_: Object, _: Selector, _: uint) -> Object)send_address
+	p := cast(proc "c" (_: Object, _: Selector, _: uint) -> Object)send_address
 	return p(receiver, selector, value)
 }
 
 msg_id_u_u_u_bool :: proc(receiver: Object, selector: Selector, format, width, height: uint, mipmapped: bool) -> Object {
-	p := transmute(proc "c" (_: Object, _: Selector, _: uint, _: uint, _: uint, _: bool) -> Object)send_address
+	p := cast(proc "c" (_: Object, _: Selector, _: uint, _: uint, _: uint, _: bool) -> Object)send_address
 	return p(receiver, selector, format, width, height, mipmapped)
 }
 
 msg_id_ptr_u_u :: proc(receiver: Object, selector: Selector, bytes: rawptr, length, options: uint) -> Object {
-	p := transmute(proc "c" (_: Object, _: Selector, _: rawptr, _: uint, _: uint) -> Object)send_address
+	p := cast(proc "c" (_: Object, _: Selector, _: rawptr, _: uint, _: uint) -> Object)send_address
 	return p(receiver, selector, bytes, length, options)
 }
 
 msg_void_ptr_u_u :: proc(receiver: Object, selector: Selector, bytes: rawptr, length, index: uint) {
-	p := transmute(proc "c" (_: Object, _: Selector, _: rawptr, _: uint, _: uint))send_address
+	p := cast(proc "c" (_: Object, _: Selector, _: rawptr, _: uint, _: uint))send_address
 	p(receiver, selector, bytes, length, index)
 }
 
 msg_void_id_u_u :: proc(receiver: Object, selector: Selector, value: Object, offset, index: uint) {
-	p := transmute(proc "c" (_: Object, _: Selector, _: Object, _: uint, _: uint))send_address
+	p := cast(proc "c" (_: Object, _: Selector, _: Object, _: uint, _: uint))send_address
 	p(receiver, selector, value, offset, index)
 }
 
 msg_void_region_u_ptr_u :: proc(receiver: Object, selector: Selector, region: MTL_Region, level: uint, bytes: rawptr, bytes_per_row: uint) {
-	p := transmute(proc "c" (_: Object, _: Selector, _: MTL_Region, _: uint, _: rawptr, _: uint))send_address
+	p := cast(proc "c" (_: Object, _: Selector, _: MTL_Region, _: uint, _: rawptr, _: uint))send_address
 	p(receiver, selector, region, level, bytes, bytes_per_row)
 }
 
 msg_void_scissor :: proc(receiver: Object, selector: Selector, rect: MTL_Scissor_Rect) {
-	p := transmute(proc "c" (_: Object, _: Selector, _: MTL_Scissor_Rect))send_address
+	p := cast(proc "c" (_: Object, _: Selector, _: MTL_Scissor_Rect))send_address
 	p(receiver, selector, rect)
 }
 
 msg_void_draw_instanced :: proc(receiver: Object, selector: Selector, primitive, vertex_start, vertex_count, instance_count: uint) {
-	p := transmute(proc "c" (_: Object, _: Selector, _: uint, _: uint, _: uint, _: uint))send_address
+	p := cast(proc "c" (_: Object, _: Selector, _: uint, _: uint, _: uint, _: uint))send_address
 	p(receiver, selector, primitive, vertex_start, vertex_count, instance_count)
 }
 
@@ -229,7 +229,7 @@ MTL_Clear_Color :: struct {
 }
 
 msg_void_clear_color :: proc(receiver: Object, selector: Selector, color: MTL_Clear_Color) {
-	p := transmute(proc "c" (_: Object, _: Selector, _: MTL_Clear_Color))send_address
+	p := cast(proc "c" (_: Object, _: Selector, _: MTL_Clear_Color))send_address
 	p(receiver, selector, color)
 }
 

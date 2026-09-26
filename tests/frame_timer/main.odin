@@ -18,17 +18,17 @@ send_address: rawptr
 tick_count: int
 
 msg_id :: proc(receiver, selector: rawptr) -> rawptr {
-	send := transmute(proc "c" (_: rawptr, _: rawptr) -> rawptr)send_address
+	send := cast(proc "c" (_: rawptr, _: rawptr) -> rawptr)send_address
 	return send(receiver, selector)
 }
 
 msg_void :: proc(receiver, selector: rawptr) {
-	send := transmute(proc "c" (_: rawptr, _: rawptr))send_address
+	send := cast(proc "c" (_: rawptr, _: rawptr))send_address
 	send(receiver, selector)
 }
 
 nsstring :: proc(value: cstring) -> rawptr {
-	send := transmute(proc "c" (_: rawptr, _: rawptr, _: cstring) -> rawptr)send_address
+	send := cast(proc "c" (_: rawptr, _: rawptr, _: cstring) -> rawptr)send_address
 	return send(objc_getClass("NSString"), sel_registerName("stringWithUTF8String:"), value)
 }
 
@@ -56,13 +56,13 @@ test_target :: proc() -> rawptr {
 }
 
 run_mode :: proc(mode: cstring, seconds: f64) {
-	date_send := transmute(proc "c" (_: rawptr, _: rawptr, _: f64) -> rawptr)send_address
+	date_send := cast(proc "c" (_: rawptr, _: rawptr, _: f64) -> rawptr)send_address
 	deadline := date_send(
 		objc_getClass("NSDate"),
 		sel_registerName("dateWithTimeIntervalSinceNow:"),
 		seconds,
 	)
-	run_send := transmute(proc "c" (
+	run_send := cast(proc "c" (
 		_: rawptr,
 		_: rawptr,
 		_: rawptr,

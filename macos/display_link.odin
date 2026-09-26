@@ -27,22 +27,22 @@ display_link_rate_range :: proc(
 }
 
 display_link_msg_id_id_sel :: proc(receiver, selector, target, callback: rawptr) -> rawptr {
-	send := transmute(proc "c" (_: rawptr, _: rawptr, _: rawptr, _: rawptr) -> rawptr)frame_timer_send_address
+	send := cast(proc "c" (_: rawptr, _: rawptr, _: rawptr, _: rawptr) -> rawptr)frame_timer_send_address
 	return send(receiver, selector, target, callback)
 }
 
 display_link_msg_void_bool :: proc(receiver, selector: rawptr, value: bool) {
-	send := transmute(proc "c" (_: rawptr, _: rawptr, _: bool))frame_timer_send_address
+	send := cast(proc "c" (_: rawptr, _: rawptr, _: bool))frame_timer_send_address
 	send(receiver, selector, value)
 }
 
 display_link_msg_void_range :: proc(receiver, selector: rawptr, value: Frame_Rate_Range) {
-	send := transmute(proc "c" (_: rawptr, _: rawptr, _: Frame_Rate_Range))frame_timer_send_address
+	send := cast(proc "c" (_: rawptr, _: rawptr, _: Frame_Rate_Range))frame_timer_send_address
 	send(receiver, selector, value)
 }
 
 display_link_msg_f64 :: proc(receiver, selector: rawptr) -> f64 {
-	send := transmute(proc "c" (_: rawptr, _: rawptr) -> f64)frame_timer_send_address
+	send := cast(proc "c" (_: rawptr, _: rawptr) -> f64)frame_timer_send_address
 	return send(receiver, selector)
 }
 

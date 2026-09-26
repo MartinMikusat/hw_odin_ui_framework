@@ -102,7 +102,7 @@ offscreen_vector_paths_render_convex_compound_and_stroked_geometry_test :: proc(
 }
 
 msg_void_get_bytes :: proc(receiver: Object, selector: Selector, bytes: rawptr, bytes_per_row: uint, region: MTL_Region, level: uint) {
-	p := transmute(proc "c" (_: Object, _: Selector, _: rawptr, _: uint, _: MTL_Region, _: uint))send_address
+	p := cast(proc "c" (_: Object, _: Selector, _: rawptr, _: uint, _: MTL_Region, _: uint))send_address
 	p(receiver, selector, bytes, bytes_per_row, region, level)
 }
 

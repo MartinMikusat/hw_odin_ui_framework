@@ -35,17 +35,17 @@ frame_timer_load_objc :: proc() -> bool {
 }
 
 frame_timer_msg_id :: proc(receiver, selector: rawptr) -> rawptr {
-	send := transmute(proc "c" (_: rawptr, _: rawptr) -> rawptr)frame_timer_send_address
+	send := cast(proc "c" (_: rawptr, _: rawptr) -> rawptr)frame_timer_send_address
 	return send(receiver, selector)
 }
 
 frame_timer_msg_void :: proc(receiver, selector: rawptr) {
-	send := transmute(proc "c" (_: rawptr, _: rawptr))frame_timer_send_address
+	send := cast(proc "c" (_: rawptr, _: rawptr))frame_timer_send_address
 	send(receiver, selector)
 }
 
 frame_timer_msg_void_id_id :: proc(receiver, selector, first, second: rawptr) {
-	send := transmute(proc "c" (_: rawptr, _: rawptr, _: rawptr, _: rawptr))frame_timer_send_address
+	send := cast(proc "c" (_: rawptr, _: rawptr, _: rawptr, _: rawptr))frame_timer_send_address
 	send(receiver, selector, first, second)
 }
 
@@ -66,7 +66,7 @@ frame_timer_start :: proc(
 
 	callback := sel_registerName(callback_name)
 	if callback == nil {return false}
-	timer_send := transmute(proc "c" (
+	timer_send := cast(proc "c" (
 		_: rawptr,
 		_: rawptr,
 		_: f64,
