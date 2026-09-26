@@ -128,6 +128,9 @@ Renderer :: struct {
 	stencil_height:   uint,
 	upload_slots:     [UPLOAD_SLOT_MAX]Upload_Slot,
 	upload_stats:     Upload_Stats,
+	persistent:       [dynamic]Object, // Retained; nil entries are free.
+	persistent_free:  [dynamic]u32,
+	atlas_handles:    map[u64]draw.Texture_Handle, // Glyph atlas native -> persistent handle.
 }
 
 send_address: rawptr
@@ -484,6 +487,9 @@ renderer_init :: proc(
 	if device == nil || !load_objc() {return false}
 	renderer^ = Renderer{allocator = allocator, device = device, pixel_format = pixel_format}
 	renderer.textures = make([dynamic]Object, allocator)
+	renderer.persistent = make([dynamic]Object, allocator)
+	renderer.persistent_free = make([dynamic]u32, allocator)
+	renderer.atlas_handles = make(map[u64]draw.Texture_Handle, allocator)
 	library := load_library(renderer, metallib_path, metallib_data, allow_runtime_fallback)
 	if library == nil {renderer_destroy(renderer); return false}
 	renderer.pipeline = create_pipeline(renderer, library, pixel_format)
@@ -551,6 +557,7 @@ renderer_destroy :: proc(renderer: ^Renderer) {
 	release(renderer.linear_sampler)
 	release(renderer.nearest_sampler)
 	upload_destroy(renderer)
+	persistent_destroy(renderer)
 	renderer^ = {}
 }
 
@@ -647,11 +654,22 @@ atlas_upload :: proc(
 }
 
 atlas_destroy :: proc(data: rawptr, native: u64) {
+	renderer := (^Renderer)(data)
+	if handle, bound := renderer.atlas_handles[native]; bound {
+		unregister_persistent_texture(renderer, handle)
+		delete_key(&renderer.atlas_handles, native)
+	}
 	release(Object(rawptr(uintptr(native))))
 }
 
+// Atlas pages live across frames, so their handles are persistent: binding is a
+// lookup after the first frame, with no per-frame retain or registration.
 atlas_bind :: proc(data: rawptr, native: u64) -> draw.Texture_Handle {
-	return register_texture((^Renderer)(data), Object(rawptr(uintptr(native))))
+	renderer := (^Renderer)(data)
+	if handle, bound := renderer.atlas_handles[native]; bound {return handle}
+	handle := register_persistent_texture(renderer, Object(rawptr(uintptr(native))))
+	renderer.atlas_handles[native] = handle
+	return handle
 }
 
 atlas_io :: proc(renderer: ^Renderer) -> coretext.Atlas_IO {
@@ -665,6 +683,11 @@ atlas_io :: proc(renderer: ^Renderer) -> coretext.Atlas_IO {
 }
 
 texture_for_handle :: proc(renderer: ^Renderer, handle: draw.Texture_Handle) -> Object {
+	if handle >= PERSISTENT_HANDLE_BASE {
+		index := int(handle - PERSISTENT_HANDLE_BASE)
+		if index >= len(renderer.persistent) || renderer.persistent[index] == nil {return renderer.white_texture}
+		return renderer.persistent[index]
+	}
 	index := int(handle)-1
 	if index < 0 || index >= len(renderer.textures) {return renderer.white_texture}
 	return renderer.textures[index]

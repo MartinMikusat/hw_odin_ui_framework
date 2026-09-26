@@ -184,15 +184,20 @@ uses the exponent-four superellipse defined by CSS `superellipse(2)`. The shape
 flows through `ui.Style.corner_shape` to fills, borders, and shadows without
 changing batching; applications must opt in explicitly.
 
-Ordinary applications rebuild draw lists every requested frame, matching the
-RADDBG immediate-UI model. Media hot loops may retain chrome `draw.Bucket`
-values across ticks when panels and labels are unchanged. Those buckets may
-outlive `begin_texture_frame` only if the application snapshots Metal texture
-natives with `snapshot_texture_natives` after the chrome rebuild and calls
-`rebind_texture_natives` before compose or encode on a warm tick. This is a
-Hal Wayland hot-loop extension, not RADDBG draw-list retention. Workspace
-contracts live in
-[`notes/native-render-lifetime-contracts.md`](../notes/native-render-lifetime-contracts.md).
+Independently changing pieces of an interface are cached surfaces
+(`metal/surface.odin`). A `metal.Surface` owns a GPU-private render target. Paint
+it with `surface_paint` only when `surface_is_current` reports that its size,
+scale, or application `content_revision` changed; every other frame draws it with
+`surface_composite`, one textured quad. Modals and dense views are separate
+surfaces; pointer feedback is drawn as an overlay after compositing, so hover never
+repaints a surface.
+
+Textures that live across frames use persistent handles
+(`register_persistent_texture`), which stay valid through `begin_texture_frame`.
+Surfaces and glyph atlas pages register this way, so a warm frame performs no
+texture registration. `register_texture` remains for textures used within one
+frame. `snapshot_texture_natives` and `rebind_texture_natives` predate persistent
+handles and are only needed for retained buckets holding frame handles.
 
 CoreText returns an opaque prepared-run handle. The box stores that handle and
 uses its metrics for alignment. Glyph emission consumes the same handle, so the
