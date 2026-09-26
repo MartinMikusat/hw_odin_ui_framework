@@ -126,6 +126,8 @@ Renderer :: struct {
 	stencil_texture:  Object,
 	stencil_width:    uint,
 	stencil_height:   uint,
+	upload_slots:     [UPLOAD_SLOT_MAX]Upload_Slot,
+	upload_stats:     Upload_Stats,
 }
 
 send_address: rawptr
@@ -548,6 +550,7 @@ renderer_destroy :: proc(renderer: ^Renderer) {
 	release(renderer.white_texture)
 	release(renderer.linear_sampler)
 	release(renderer.nearest_sampler)
+	upload_destroy(renderer)
 	renderer^ = {}
 }
 
@@ -748,7 +751,8 @@ set_batch_scissor :: proc(
 }
 
 encode_path_range :: proc(
-	encoder, pipeline, depth_state, buffer: Object,
+	encoder, pipeline, depth_state: Object,
+	upload: Upload,
 	range: Batch_Range,
 	uniforms: ^Path_Uniforms,
 	stroke_threshold: f32,
@@ -758,7 +762,7 @@ encode_path_range :: proc(
 	msg_void_id(encoder, sel_registerName("setRenderPipelineState:"), pipeline)
 	msg_void_id(encoder, sel_registerName("setDepthStencilState:"), depth_state)
 	msg_void_u(encoder, sel_registerName("setStencilReferenceValue:"), 0)
-	msg_void_id_u_u(encoder, sel_registerName("setVertexBuffer:offset:atIndex:"), buffer, 0, 0)
+	msg_void_id_u_u(encoder, sel_registerName("setVertexBuffer:offset:atIndex:"), upload.buffer, upload.offset, 0)
 	msg_void_ptr_u_u(
 		encoder,
 		sel_registerName("setVertexBytes:length:atIndex:"),
@@ -785,7 +789,8 @@ encode_path_range :: proc(
 
 encode_path_batch :: proc(
 	renderer: ^Renderer,
-	encoder, buffer: Object,
+	encoder: Object,
+	upload: Upload,
 	batch: ^draw.Batch,
 	ranges: Path_Batch_Range,
 	viewport_points: [2]f32,
@@ -822,7 +827,7 @@ encode_path_batch :: proc(
 			encoder,
 			color_pipeline,
 			renderer.disabled_depth_stencil_state,
-			buffer,
+			upload,
 			ranges.fill,
 			&uniforms,
 			-1,
@@ -831,7 +836,7 @@ encode_path_batch :: proc(
 			encoder,
 			color_pipeline,
 			renderer.disabled_depth_stencil_state,
-			buffer,
+			upload,
 			ranges.fringe,
 			&uniforms,
 			-1,
@@ -843,7 +848,7 @@ encode_path_batch :: proc(
 			encoder,
 			renderer.path_stencil_write_pipeline,
 			fill_state,
-			buffer,
+			upload,
 			ranges.fill,
 			&uniforms,
 			-1,
@@ -852,7 +857,7 @@ encode_path_batch :: proc(
 			encoder,
 			renderer.path_stencil_pipeline,
 			renderer.stencil_equal_state,
-			buffer,
+			upload,
 			ranges.fringe,
 			&uniforms,
 			-1,
@@ -861,7 +866,7 @@ encode_path_batch :: proc(
 			encoder,
 			renderer.path_stencil_pipeline,
 			renderer.stencil_not_equal_zero_state,
-			buffer,
+			upload,
 			ranges.cover,
 			&uniforms,
 			-1,
@@ -871,7 +876,7 @@ encode_path_batch :: proc(
 			encoder,
 			renderer.path_stencil_pipeline,
 			renderer.stroke_write_state,
-			buffer,
+			upload,
 			ranges.fill,
 			&uniforms,
 			1-0.5/255,
@@ -880,7 +885,7 @@ encode_path_batch :: proc(
 			encoder,
 			renderer.path_stencil_pipeline,
 			renderer.stencil_equal_state,
-			buffer,
+			upload,
 			ranges.fill,
 			&uniforms,
 			-1,
@@ -889,7 +894,7 @@ encode_path_batch :: proc(
 			encoder,
 			renderer.path_stencil_write_pipeline,
 			renderer.stencil_clear_state,
-			buffer,
+			upload,
 			ranges.fill,
 			&uniforms,
 			-1,
@@ -903,76 +908,78 @@ encode_path_batch :: proc(
 	return true
 }
 
+// Writes the list's quad instances and path vertices straight into the upload
+// ring for command_buffer. Ranges index elements from each upload's offset and
+// live in the temporary allocator.
+upload_list :: proc(
+	renderer: ^Renderer,
+	command_buffer: Object,
+	list: ^draw.List,
+) -> (
+	quads: Upload,
+	paths: Upload,
+	ranges: []Batch_Range,
+	path_ranges: []Path_Batch_Range,
+	ok: bool,
+) {
+	quad_total := 0
+	for &batch in list.batches {
+		if batch.kind == .Quad {quad_total += len(batch.instances)}
+	}
+	path_total := path_vertex_count(list)
+	ranges = make([]Batch_Range, len(list.batches), context.temp_allocator)
+	path_ranges = make([]Path_Batch_Range, len(list.batches), context.temp_allocator)
+	if quad_total > 0 {
+		quads = upload_reserve(renderer, command_buffer, uint(quad_total)*size_of(GPU_Quad_Instance)) or_return
+		instances := ([^]GPU_Quad_Instance)(quads.bytes)[:quad_total]
+		cursor := 0
+		for &batch, index in list.batches {
+			if batch.kind != .Quad {continue}
+			ranges[index] = {uint(cursor), uint(len(batch.instances))}
+			for instance in batch.instances {
+				instances[cursor] = gpu_instance(instance)
+				cursor += 1
+			}
+		}
+		assert(cursor == quad_total)
+	}
+	if path_total > 0 {
+		paths = upload_reserve(renderer, command_buffer, uint(path_total)*size_of(GPU_Path_Vertex)) or_return
+		pack_path_vertices(list, ([^]GPU_Path_Vertex)(paths.bytes)[:path_total], path_ranges)
+	}
+	ok = true
+	return
+}
+
+// Encodes into a caller-owned encoder. command_buffer is the one that created the
+// encoder; its completion releases the upload slot (see upload.odin).
 encode :: proc(
 	renderer: ^Renderer,
+	command_buffer: Object,
 	encoder: Object,
 	list: ^draw.List,
 	viewport_points: [2]f32,
 	backing_scale := f32(1),
 	stencil_available := false,
 ) -> bool {
-	if renderer == nil || renderer.pipeline == nil || encoder == nil || list == nil {return false}
+	if renderer == nil || renderer.pipeline == nil || command_buffer == nil || encoder == nil || list == nil {
+		return false
+	}
 	if list_requires_stencil(list) && !stencil_available {return false}
-	quad_total := 0
-	for &batch in list.batches {
-		if batch.kind == .Quad {quad_total += len(batch.instances)}
-	}
-	path_total := path_vertex_count(list)
-	if quad_total == 0 && path_total == 0 {return true}
-	instances := make([]GPU_Quad_Instance, max(quad_total, 1), context.temp_allocator)
-	defer delete(instances, context.temp_allocator)
-	ranges := make([]Batch_Range, len(list.batches), context.temp_allocator)
-	defer delete(ranges, context.temp_allocator)
-	cursor := 0
-	for &batch, index in list.batches {
-		if batch.kind != .Quad {continue}
-		ranges[index] = {uint(cursor), uint(len(batch.instances))}
-		for instance in batch.instances {
-			instances[cursor] = gpu_instance(instance)
-			cursor += 1
-		}
-	}
-	quad_buffer: Object
-	if quad_total > 0 {
-		quad_buffer = msg_id_ptr_u_u(
-			renderer.device,
-			sel_registerName("newBufferWithBytes:length:options:"),
-			raw_data(instances),
-			uint(quad_total)*size_of(GPU_Quad_Instance),
-			0,
-		)
-		if quad_buffer == nil {return false}
-	}
-	defer release(quad_buffer)
-	path_ranges := make([]Path_Batch_Range, len(list.batches), context.temp_allocator)
-	defer delete(path_ranges, context.temp_allocator)
-	path_vertices := make([]GPU_Path_Vertex, max(path_total, 1), context.temp_allocator)
-	defer delete(path_vertices, context.temp_allocator)
-	path_buffer: Object
-	if path_total > 0 {
-		pack_path_vertices(list, path_vertices[:path_total], path_ranges)
-		path_buffer = msg_id_ptr_u_u(
-			renderer.device,
-			sel_registerName("newBufferWithBytes:length:options:"),
-			raw_data(path_vertices),
-			uint(path_total)*size_of(GPU_Path_Vertex),
-			0,
-		)
-		if path_buffer == nil {return false}
-	}
-	defer release(path_buffer)
+	quads, paths, ranges, path_ranges, uploaded := upload_list(renderer, command_buffer, list)
+	if !uploaded {return false}
 	for &batch, index in list.batches {
 		switch batch.kind {
 		case .Quad:
 			pipeline := renderer.pipeline
 			if stencil_available {pipeline = renderer.stencil_pipeline}
 			encode_batch_range(
-				renderer, encoder, pipeline, quad_buffer, list, ranges,
+				renderer, encoder, pipeline, quads, list, ranges,
 				index, index+1, viewport_points, backing_scale,
 			)
 		case .Path:
 			if !encode_path_batch(
-				renderer, encoder, path_buffer, &batch, path_ranges[index],
+				renderer, encoder, paths, &batch, path_ranges[index],
 				viewport_points, backing_scale, stencil_available,
 			) {return false}
 		}
@@ -1061,7 +1068,7 @@ encode_batch_range :: proc(
 	renderer: ^Renderer,
 	encoder: Object,
 	pipeline: Object,
-	buffer: Object,
+	upload: Upload,
 	list: ^draw.List,
 	ranges: []Batch_Range,
 	start, end: int,
@@ -1105,8 +1112,8 @@ encode_batch_range :: proc(
 		msg_void_id_u_u(
 			encoder,
 			sel_registerName("setVertexBuffer:offset:atIndex:"),
-			buffer,
-			ranges[index].start*size_of(GPU_Quad_Instance),
+			upload.buffer,
+			upload.offset+ranges[index].start*size_of(GPU_Quad_Instance),
 			0,
 		)
 		msg_void_draw_instanced(
@@ -1134,15 +1141,8 @@ composite_shadow_texture :: proc(
 		edge_softness = 0.5,
 		texture_mode = u32(draw.Texture_Mode.Color),
 	}
-	buffer := msg_id_ptr_u_u(
-		renderer.device,
-		sel_registerName("newBufferWithBytes:length:options:"),
-		&instance,
-		size_of(GPU_Quad_Instance),
-		0,
-	)
-	if buffer == nil {return}
-	defer release(buffer)
+	// One instance fits setVertexBytes, which needs no buffer or upload slot.
+	#assert(size_of(GPU_Quad_Instance) < 4096)
 	uniforms := Batch_Uniforms{
 		viewport = viewport_points,
 		opacity = 1,
@@ -1156,7 +1156,13 @@ composite_shadow_texture :: proc(
 		sel_registerName("setDepthStencilState:"),
 		renderer.disabled_depth_stencil_state,
 	)
-	msg_void_id_u_u(encoder, sel_registerName("setVertexBuffer:offset:atIndex:"), buffer, 0, 0)
+	msg_void_ptr_u_u(
+		encoder,
+		sel_registerName("setVertexBytes:length:atIndex:"),
+		&instance,
+		size_of(GPU_Quad_Instance),
+		0,
+	)
 	msg_void_ptr_u_u(
 		encoder,
 		sel_registerName("setVertexBytes:length:atIndex:"),
@@ -1198,53 +1204,8 @@ encode_to_drawable :: proc(
 	pixel_h := uint(max(f32(1), viewport_points[1]*backing_scale))
 	stencil_available := list_requires_stencil(list)
 	if stencil_available && !ensure_stencil_texture(renderer, pixel_w, pixel_h) {return false}
-	quad_total := 0
-	for &batch in list.batches {
-		if batch.kind == .Quad {quad_total += len(batch.instances)}
-	}
-	instances := make([]GPU_Quad_Instance, max(quad_total, 1), context.temp_allocator)
-	defer delete(instances, context.temp_allocator)
-	ranges := make([]Batch_Range, len(list.batches), context.temp_allocator)
-	defer delete(ranges, context.temp_allocator)
-	cursor := 0
-	for &batch, index in list.batches {
-		if batch.kind != .Quad {continue}
-		ranges[index] = {uint(cursor), uint(len(batch.instances))}
-		for instance in batch.instances {
-			instances[cursor] = gpu_instance(instance)
-			cursor += 1
-		}
-	}
-	buffer: Object
-	if quad_total > 0 {
-		buffer = msg_id_ptr_u_u(
-			renderer.device,
-			sel_registerName("newBufferWithBytes:length:options:"),
-			raw_data(instances),
-			uint(quad_total)*size_of(GPU_Quad_Instance),
-			0,
-		)
-		if buffer == nil {return false}
-	}
-	defer release(buffer)
-	path_total := path_vertex_count(list)
-	path_ranges := make([]Path_Batch_Range, len(list.batches), context.temp_allocator)
-	defer delete(path_ranges, context.temp_allocator)
-	path_vertices := make([]GPU_Path_Vertex, max(path_total, 1), context.temp_allocator)
-	defer delete(path_vertices, context.temp_allocator)
-	path_buffer: Object
-	if path_total > 0 {
-		pack_path_vertices(list, path_vertices[:path_total], path_ranges)
-		path_buffer = msg_id_ptr_u_u(
-			renderer.device,
-			sel_registerName("newBufferWithBytes:length:options:"),
-			raw_data(path_vertices),
-			uint(path_total)*size_of(GPU_Path_Vertex),
-			0,
-		)
-		if path_buffer == nil {return false}
-	}
-	defer release(path_buffer)
+	buffer, path_buffer, ranges, path_ranges, uploaded := upload_list(renderer, command_buffer, list)
+	if !uploaded {return false}
 
 	clear := MTL_Clear_Color{
 		f64(clear_color[0]),
@@ -1267,7 +1228,7 @@ encode_to_drawable :: proc(
 		renderer: ^Renderer,
 		command_buffer: Object,
 		color_texture: Object,
-		buffer: Object,
+		buffer: Upload,
 		list: ^draw.List,
 		ranges: []Batch_Range,
 		max_start, max_end: int,
@@ -1289,7 +1250,7 @@ encode_to_drawable :: proc(
 			{0, 0, 0, 0},
 		)
 		if shadow_encoder == nil {return false}
-		if buffer != nil {
+		if buffer.buffer != nil {
 			encode_batch_range(
 				renderer,
 				shadow_encoder,
@@ -1374,7 +1335,7 @@ encode_to_drawable :: proc(
 		}
 		switch list.batches[index].kind {
 		case .Quad:
-			if buffer == nil {continue}
+			if buffer.buffer == nil {continue}
 			encode_batch_range(
 				renderer,
 				main_encoder,

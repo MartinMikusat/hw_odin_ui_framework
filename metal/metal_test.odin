@@ -178,7 +178,7 @@ offscreen_composition_preserves_submission_order_test :: proc(t: ^testing.T) {
 	draw.solid(&list, {0, 0, 64, 64}, {1, 0, 0, 1}, label = "background text")
 	draw.solid(&list, {0, 0, 64, 64}, {0, 0, 0, 0.5}, label = "backdrop")
 	draw.solid(&list, {16, 16, 32, 32}, {0, 1, 0, 1}, label = "modal surface")
-	testing.expect(t, encode(&renderer, encoder, &list, {64, 64}))
+	testing.expect(t, encode(&renderer, command_buffer, encoder, &list, {64, 64}))
 	msg_void(encoder, sel_registerName("endEncoding"))
 	msg_void(command_buffer, sel_registerName("commit"))
 	msg_void(command_buffer, sel_registerName("waitUntilCompleted"))
@@ -256,7 +256,7 @@ offscreen_squircle_contour_and_border_are_distinct_from_round_test :: proc(t: ^t
 		0.5,
 		corner_shape = .Squircle,
 	)
-	testing.expect(t, encode(&renderer, encoder, &list, {96, 32}))
+	testing.expect(t, encode(&renderer, command_buffer, encoder, &list, {96, 32}))
 	msg_void(encoder, sel_registerName("endEncoding"))
 	msg_void(command_buffer, sel_registerName("commit"))
 	msg_void(command_buffer, sel_registerName("waitUntilCompleted"))
@@ -571,7 +571,7 @@ coretext_glyph_atlas_composes_background_and_modal_text_in_one_stream_test :: pr
 	msg_void_u(attachment, sel_registerName("setStoreAction:"), 1)
 	msg_void_clear_color(attachment, sel_registerName("setClearColor:"), {0, 0, 0, 1})
 	encoder := msg_id_id(command_buffer, sel_registerName("renderCommandEncoderWithDescriptor:"), pass)
-	testing.expect(t, encode(&renderer, encoder, output.draw_list, {256, 128}, 2))
+	testing.expect(t, encode(&renderer, command_buffer, encoder, output.draw_list, {256, 128}, 2))
 	msg_void(encoder, sel_registerName("endEncoding"))
 	msg_void(command_buffer, sel_registerName("commit"))
 	msg_void(command_buffer, sel_registerName("waitUntilCompleted"))

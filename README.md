@@ -40,8 +40,14 @@ ordered draw buckets. It does not copy RADDBG source code.
   subpixel phases, and baselines snap to the device pixel grid, so text stays
   crisp at fractional positions instead of resampling the glyph masks.
 - `metal` encodes the draw stream into Metal. `encode` writes into a caller-owned
-  encoder. `encode_to_drawable` owns the pass list so `Combine.Max` batches can
-  max-blend offscreen and then over-composite onto the canvas.
+  encoder created from the `command_buffer` it receives. `encode_to_drawable` owns
+  the pass list so `Combine.Max` batches can max-blend offscreen and then
+  over-composite onto the canvas. Draw data goes straight into a persistent ring
+  of shared buffers (`metal/upload.odin`). A slot belongs to one command buffer
+  and is reused only after that command buffer completes, so steady-state frames
+  allocate nothing. Commit every command buffer passed to an encode, or discard it
+  without committing it later. `upload_stats` reports slots, allocations, waits,
+  and reclaims.
 - `macos` adapts AppKit pointer and Accessibility events to published controls.
 
 `macos.Display_Link` wraps the macOS 14 `NSView` display-link API. It follows
