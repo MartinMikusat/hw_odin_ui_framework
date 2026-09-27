@@ -385,21 +385,23 @@ wrap_line_ranges :: proc(
 	if text_ref == nil {return result}
 	defer CFRelease(text_ref)
 	utf16_length := CFStringGetLength(text_ref)
-	utf16_start := 0
+	utf16_start, byte_start := 0, 0
 	for utf16_start < utf16_length {
 		count := int(CTTypesetterSuggestLineBreak(typesetter, CF.Index(utf16_start), f64(maximum_width*value.backing_scale)))
 		if count <= 0 {
 			count = int(CTTypesetterSuggestClusterBreak(typesetter, CF.Index(utf16_start), f64(maximum_width*value.backing_scale)))
 		}
-		if count <= 0 {count = 1}
+		if count <= 0 {count = text[byte_start]&0xf8 == 0xf0 ? 2 : 1}
 		utf16_next := min(utf16_length, utf16_start+count)
-		byte_start := byte_offset_for_utf16_index(text, utf16_start)
-		next_byte := byte_offset_for_utf16_index(text, utf16_next)
+		// Advance through UTF-8 once; rescanning each line's full prefix is quadratic.
+		next_byte := byte_start + byte_offset_for_utf16_index(text[byte_start:], utf16_next-utf16_start)
+		assert(next_byte > byte_start && next_byte <= len(text))
 		byte_end := next_byte
 		if byte_end > byte_start && text[byte_end-1] == '\n' {byte_end -= 1}
 		if byte_end > byte_start && text[byte_end-1] == '\r' {byte_end -= 1}
 		append(&result, Wrapped_Line_Range{byte_start, byte_end, next_byte})
 		utf16_start = utf16_next
+		byte_start = next_byte
 	}
 	if len(text) > 0 && (text[len(text)-1] == '\n' || text[len(text)-1] == '\r') {
 		append(&result, Wrapped_Line_Range{len(text), len(text), len(text)})

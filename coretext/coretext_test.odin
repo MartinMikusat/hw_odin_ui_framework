@@ -157,6 +157,15 @@ wrapped_line_ranges_preserve_unicode_newlines_and_narrow_clusters_test :: proc(t
 	defer delete(narrow)
 	testing.expect_value(t, len(narrow), 2)
 	testing.expect_value(t, narrow[0].byte_end, len("😀"))
+    repeated := strings.repeat("café 😀\r\n", 2000) or_else ""
+    defer delete(repeated)
+    many := wrap_line_ranges(&value, ui.Font_Handle(1), repeated, 12, 0, 1000)
+    defer delete(many)
+    testing.expect_value(t, len(many), 2001)
+    for line, index in many {
+        testing.expect_value(t, line.byte_start, index*len("café 😀\r\n"))
+        if index < 2000 {testing.expect_value(t, repeated[line.byte_start:line.byte_end], "café 😀")}
+    }
 }
 
 @(test)
