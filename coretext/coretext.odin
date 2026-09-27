@@ -366,47 +366,82 @@ byte_offset_for_utf16_index :: proc(text: string, target_index: int) -> int {
 	return min(byte_index, len(text))
 }
 
+// The iterator owns its Core Text typesetter and borrows text until destroy.
+// Callers can bound work or cancel between lines without retaining a full array.
+Wrap_Iterator :: struct {
+    typesetter: rawptr,
+    text: string,
+    width: f64,
+    utf16_start, utf16_length, byte_start: int,
+    trailing: bool,
+}
+
+wrap_iterator_init :: proc(value: ^Context, font: ui.Font_Handle, text: string, size, tracking, maximum_width: f32) -> (Wrap_Iterator, bool) {
+    if value == nil || maximum_width <= 0 {return {}, false}
+    if len(text) == 0 {return {}, true}
+    attributed := make_attributed_string(value, font, text, size, tracking)
+    if attributed == nil {return {}, false}
+    defer CFRelease(attributed)
+    typesetter := CTTypesetterCreateWithAttributedString(attributed)
+    if typesetter == nil {return {}, false}
+    text_ref := cfstring(text)
+    if text_ref == nil {CFRelease(typesetter); return {}, false}
+    defer CFRelease(text_ref)
+    return Wrap_Iterator{
+        typesetter = typesetter, text = text, width = f64(maximum_width*value.backing_scale),
+        utf16_length = CFStringGetLength(text_ref),
+        trailing = text[len(text)-1] == '\n' || text[len(text)-1] == '\r',
+    }, true
+}
+
+wrap_iterator_destroy :: proc(iterator: ^Wrap_Iterator) {
+    assert(iterator != nil)
+    if iterator.typesetter != nil {CFRelease(iterator.typesetter)}
+    iterator^ = {}
+}
+
+wrap_iterator_next :: proc(iterator: ^Wrap_Iterator) -> (Wrapped_Line_Range, bool) {
+    assert(iterator != nil)
+    if iterator.utf16_start >= iterator.utf16_length {
+        if !iterator.trailing {return {}, false}
+        iterator.trailing = false
+        length := len(iterator.text)
+        return {length, length, length}, true
+    }
+    assert(iterator.typesetter != nil && iterator.byte_start < len(iterator.text))
+    count := int(CTTypesetterSuggestLineBreak(iterator.typesetter, CF.Index(iterator.utf16_start), iterator.width))
+    if count <= 0 {count = int(CTTypesetterSuggestClusterBreak(iterator.typesetter, CF.Index(iterator.utf16_start), iterator.width))}
+    if count <= 0 {count = iterator.text[iterator.byte_start]&0xf8 == 0xf0 ? 2 : 1}
+    utf16_next := min(iterator.utf16_length, iterator.utf16_start+count)
+    // Advance through UTF-8 once; rescanning each line's full prefix is quadratic.
+    next_byte := iterator.byte_start + byte_offset_for_utf16_index(iterator.text[iterator.byte_start:], utf16_next-iterator.utf16_start)
+    assert(next_byte > iterator.byte_start && next_byte <= len(iterator.text))
+    byte_end := next_byte
+    if byte_end > iterator.byte_start && iterator.text[byte_end-1] == '\n' {byte_end -= 1}
+    if byte_end > iterator.byte_start && iterator.text[byte_end-1] == '\r' {byte_end -= 1}
+    line := Wrapped_Line_Range{iterator.byte_start, byte_end, next_byte}
+    iterator.utf16_start = utf16_next
+    iterator.byte_start = next_byte
+    return line, true
+}
+
 wrap_line_ranges :: proc(
-	value: ^Context,
-	font: ui.Font_Handle,
-	text: string,
-	size, tracking, maximum_width: f32,
-	allocator := context.allocator,
+    value: ^Context,
+    font: ui.Font_Handle,
+    text: string,
+    size, tracking, maximum_width: f32,
+    allocator := context.allocator,
 ) -> [dynamic]Wrapped_Line_Range {
-	result := make([dynamic]Wrapped_Line_Range, allocator)
-	if value == nil || len(text) == 0 || maximum_width <= 0 {return result}
-	attributed := make_attributed_string(value, font, text, size, tracking)
-	if attributed == nil {return result}
-	defer CFRelease(attributed)
-	typesetter := CTTypesetterCreateWithAttributedString(attributed)
-	if typesetter == nil {return result}
-	defer CFRelease(typesetter)
-	text_ref := cfstring(text)
-	if text_ref == nil {return result}
-	defer CFRelease(text_ref)
-	utf16_length := CFStringGetLength(text_ref)
-	utf16_start, byte_start := 0, 0
-	for utf16_start < utf16_length {
-		count := int(CTTypesetterSuggestLineBreak(typesetter, CF.Index(utf16_start), f64(maximum_width*value.backing_scale)))
-		if count <= 0 {
-			count = int(CTTypesetterSuggestClusterBreak(typesetter, CF.Index(utf16_start), f64(maximum_width*value.backing_scale)))
-		}
-		if count <= 0 {count = text[byte_start]&0xf8 == 0xf0 ? 2 : 1}
-		utf16_next := min(utf16_length, utf16_start+count)
-		// Advance through UTF-8 once; rescanning each line's full prefix is quadratic.
-		next_byte := byte_start + byte_offset_for_utf16_index(text[byte_start:], utf16_next-utf16_start)
-		assert(next_byte > byte_start && next_byte <= len(text))
-		byte_end := next_byte
-		if byte_end > byte_start && text[byte_end-1] == '\n' {byte_end -= 1}
-		if byte_end > byte_start && text[byte_end-1] == '\r' {byte_end -= 1}
-		append(&result, Wrapped_Line_Range{byte_start, byte_end, next_byte})
-		utf16_start = utf16_next
-		byte_start = next_byte
-	}
-	if len(text) > 0 && (text[len(text)-1] == '\n' || text[len(text)-1] == '\r') {
-		append(&result, Wrapped_Line_Range{len(text), len(text), len(text)})
-	}
-	return result
+    result := make([dynamic]Wrapped_Line_Range, allocator)
+    iterator, ok := wrap_iterator_init(value, font, text, size, tracking, maximum_width)
+    if !ok {return result}
+    defer wrap_iterator_destroy(&iterator)
+    for {
+        line, found := wrap_iterator_next(&iterator)
+        if !found {break}
+        append(&result, line)
+    }
+    return result
 }
 
 fill_shaped_glyphs :: proc(value: ^Context, shaped: ^Shaped_Run) {

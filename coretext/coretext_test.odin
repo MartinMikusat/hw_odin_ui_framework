@@ -162,6 +162,21 @@ wrapped_line_ranges_preserve_unicode_newlines_and_narrow_clusters_test :: proc(t
     many := wrap_line_ranges(&value, ui.Font_Handle(1), repeated, 12, 0, 1000)
     defer delete(many)
     testing.expect_value(t, len(many), 2001)
+    iterator, ready := wrap_iterator_init(&value, ui.Font_Handle(1), repeated, 12, 0, 1000)
+    testing.expect(t, ready)
+    defer wrap_iterator_destroy(&iterator)
+    for expected in many {
+        actual, found := wrap_iterator_next(&iterator)
+        testing.expect(t, found && actual == expected)
+    }
+    _, found := wrap_iterator_next(&iterator)
+    testing.expect(t, !found)
+    early, early_ready := wrap_iterator_init(&value, ui.Font_Handle(1), repeated, 12, 0, 1000)
+    testing.expect(t, early_ready)
+    first, first_found := wrap_iterator_next(&early)
+    testing.expect(t, first_found && first == many[0])
+    wrap_iterator_destroy(&early)
+    testing.expect(t, early.typesetter == nil && early.text == "")
     for line, index in many {
         testing.expect_value(t, line.byte_start, index*len("café 😀\r\n"))
         if index < 2000 {testing.expect_value(t, repeated[line.byte_start:line.byte_end], "café 😀")}
