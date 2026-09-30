@@ -55,11 +55,12 @@ layout_destroy :: proc(value:^Layout) {
 }
 
 // Layout owns both the native shaped text and its UTF-8 source until destroy.
-layout_create :: proc(value:^Context, text,family:string, size,width:f32, wrap:bool)->(Layout,win.HRESULT) {
+layout_create :: proc(value:^Context, text,family:string, size,width:f32, wrap:bool,tracking:=f32(0),truncate:=false)->(Layout,win.HRESULT) {
     assert(value!=nil && value.factory!=nil)
     if len(text)>TEXT_BYTES_MAX || len(family)==0 || len(family)>256 ||
        !utf8.valid_string(text) || !utf8.valid_string(family) || strings.contains(family,"\x00") ||
        (math.is_nan(size) || math.is_inf(size)) || size<=0 || size>1024 ||
+       (math.is_nan(tracking) || math.is_inf(tracking)) || abs(tracking)>1024 ||
        (math.is_nan(width) || math.is_inf(width)) || width<=0 || width>LAYOUT_EXTENT_MAX {return {},INVALID_ARGUMENT}
     wide:=make([]u16,len(text)+1,value.allocator)
     if wide==nil {return {},OUT_OF_MEMORY}
@@ -75,10 +76,28 @@ layout_create :: proc(value:^Context, text,family:string, size,width:f32, wrap:b
     defer _=format.Release(cast(^win.IUnknown)format)
     status=format->SetWordWrapping(wrap ? 0 : 1)
     if status<0 {return {},status}
+    if truncate {
+        sign:^Inline_Object
+        status=value.factory->CreateEllipsisTrimmingSign(format,&sign)
+        if status<0 {return {},status}
+        defer _=sign.Release(cast(^win.IUnknown)sign)
+        options:=Trimming{granularity=1}
+        status=format->SetTrimming(&options,sign)
+        if status<0 {return {},status}
+    }
     layout:=Layout{allocator=value.allocator,utf16_length=u32(length)}
     status=value.factory->CreateTextLayout(raw_data(wide),u32(length),format,width,LAYOUT_EXTENT_MAX,&layout.native)
     if status<0 {return {},status}
     assert(layout.native!=nil)
+    if tracking!=0 {
+        extended:^Text_Layout1
+        status=(cast(^win.IUnknown)layout.native)->QueryInterface(&TEXT_LAYOUT1_IID,cast(^rawptr)&extended)
+        if status<0 {layout_destroy(&layout);return {},status}
+        assert(extended!=nil)
+        status=extended->SetCharacterSpacing(0,tracking,0,{length=u32(length)})
+        _=(cast(^win.IUnknown)extended)->Release()
+        if status<0 {layout_destroy(&layout);return {},status}
+    }
     status=layout.native->GetMetrics(&layout.metrics)
     if status<0 {layout_destroy(&layout);return {},status}
     if text!="" {

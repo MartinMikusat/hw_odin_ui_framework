@@ -24,6 +24,7 @@ Glyph_Buffer :: struct {
     fonts:[dynamic]^win.IUnknown,
     allocator:mem.Allocator,
     factory:^Factory2,
+    inline_depth:u32,
 }
 
 Glyph_Mask :: struct {
@@ -142,8 +143,15 @@ renderer_glyphs :: proc "system" (_:^Text_Renderer,data:rawptr,x,y:f32,measuring
 renderer_line :: proc "system" (_:^Text_Renderer,_:rawptr,_:f32,_:f32,_:rawptr,_:rawptr)->win.HRESULT {
     return NOT_IMPLEMENTED
 }
-renderer_inline :: proc "system" (_:^Text_Renderer,_:rawptr,_:f32,_:f32,_:rawptr,_:win.BOOL,_:win.BOOL,_:rawptr)->win.HRESULT {
-    return NOT_IMPLEMENTED
+renderer_inline :: proc "system" (self:^Text_Renderer,data:rawptr,x,y:f32,object:^Inline_Object,sideways,rtl:win.BOOL,effect:rawptr)->win.HRESULT {
+    context=runtime.default_context()
+    if object==nil || data==nil {return INVALID_ARGUMENT}
+    if bool(sideways) {return NOT_IMPLEMENTED}
+    buffer:=cast(^Glyph_Buffer)data
+    if buffer.inline_depth>=4 {return OUT_OF_MEMORY}
+    buffer.inline_depth+=1
+    defer buffer.inline_depth-=1
+    return object->Draw(data,self,x,y,sideways,rtl,cast(^win.IUnknown)effect)
 }
 
 GLYPH_RENDERER_VTABLE:=Text_Renderer_VTable{

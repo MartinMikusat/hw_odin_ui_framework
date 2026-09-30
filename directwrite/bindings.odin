@@ -10,6 +10,16 @@ foreign dwrite {
 FACTORY2_IID := win.GUID{0x0439fc60,0xca44,0x4994,{0x8d,0xee,0x3a,0x9a,0xf7,0xb7,0x32,0xec}}
 TEXT_RENDERER_IID := win.GUID{0xef8a8135,0x5cc6,0x45fe,{0x88,0x25,0xc5,0xa0,0x72,0x4e,0xb8,0x19}}
 PIXEL_SNAPPING_IID := win.GUID{0xeaf3a2da,0xecf4,0x4d24,{0xb6,0x44,0xb3,0x4f,0x68,0x42,0x02,0x4b}}
+TEXT_LAYOUT1_IID := win.GUID{0x9064d822,0x80a7,0x465c,{0xa9,0x86,0xdf,0x65,0xf7,0x8b,0x8f,0xeb}}
+
+Text_Range :: struct {start,length:u32}
+Trimming :: struct {granularity,delimiter,delimiter_count:u32}
+Inline_Object :: struct {using vtable:^Inline_Object_VTable}
+Inline_Object_VTable :: struct {
+    using base:win.IUnknown_VTable,
+    Draw:proc "system" (self:^Inline_Object,data:rawptr,renderer:^Text_Renderer,x,y:f32,sideways,rtl:win.BOOL,effect:^win.IUnknown)->win.HRESULT,
+    GetMetrics,GetOverhangMetrics,GetBreakConditions:rawptr,
+}
 
 Matrix :: struct {m11,m12,m21,m22,dx,dy:f32}
 Glyph_Offset :: struct {advance,ascender:f32}
@@ -70,7 +80,7 @@ Text_Renderer_VTable :: struct {
     DrawGlyphRun:proc "system" (self:^Text_Renderer,data:rawptr,x,y:f32,measuring:u32,run:^Glyph_Run,description,effect:rawptr)->win.HRESULT,
     DrawUnderline:proc "system" (self:^Text_Renderer,data:rawptr,x,y:f32,line,effect:rawptr)->win.HRESULT,
     DrawStrikethrough:proc "system" (self:^Text_Renderer,data:rawptr,x,y:f32,line,effect:rawptr)->win.HRESULT,
-    DrawInlineObject:proc "system" (self:^Text_Renderer,data:rawptr,x,y:f32,object:rawptr,sideways,rtl:win.BOOL,effect:rawptr)->win.HRESULT,
+    DrawInlineObject:proc "system" (self:^Text_Renderer,data:rawptr,x,y:f32,object:^Inline_Object,sideways,rtl:win.BOOL,effect:rawptr)->win.HRESULT,
 }
 
 Text_Metrics :: struct {
@@ -111,7 +121,7 @@ Factory_VTable :: struct {
     GetGdiInterop: rawptr,
     CreateTextLayout: proc "system" (self:^Factory, text:[^]u16, length:u32, format:^Text_Format, width,height:f32, result:^^Text_Layout)->win.HRESULT,
     CreateGdiCompatibleTextLayout: rawptr,
-    CreateEllipsisTrimmingSign: rawptr,
+    CreateEllipsisTrimmingSign: proc "system" (self:^Factory,format:^Text_Format,result:^^Inline_Object)->win.HRESULT,
     CreateTextAnalyzer: rawptr,
     CreateNumberSubstitution: rawptr,
     CreateGlyphRunAnalysis: rawptr,
@@ -126,7 +136,7 @@ Text_Format_VTable :: struct {
     SetReadingDirection: rawptr,
     SetFlowDirection: rawptr,
     SetIncrementalTabStop: rawptr,
-    SetTrimming: rawptr,
+    SetTrimming: proc "system" (self:^Text_Format,options:^Trimming,sign:^Inline_Object)->win.HRESULT,
     SetLineSpacing: rawptr,
     GetTextAlignment: rawptr,
     GetParagraphAlignment: rawptr,
@@ -148,6 +158,13 @@ Text_Format_VTable :: struct {
 }
 
 Text_Layout :: struct {using vtable:^Text_Layout_VTable}
+Text_Layout1 :: struct {using vtable:^Text_Layout1_VTable}
+Text_Layout1_VTable :: struct {
+    original:Text_Layout_VTable,
+    SetPairKerning,GetPairKerning:rawptr,
+    SetCharacterSpacing:proc "system" (self:^Text_Layout1,leading,trailing,minimum_advance:f32,range:Text_Range)->win.HRESULT,
+    GetCharacterSpacing:rawptr,
+}
 Text_Layout_VTable :: struct {
     format: Text_Format_VTable,
     SetMaxWidth: rawptr,
@@ -203,3 +220,9 @@ Text_Layout_VTable :: struct {
 #assert(size_of(Glyph_Run)==48)
 #assert(size_of(Matrix)==24)
 #assert(size_of(Color_Glyph_Run)==88)
+#assert(size_of(Text_Range)==8)
+#assert(size_of(Trimming)==12)
+#assert(offset_of(Factory_VTable,CreateEllipsisTrimmingSign)==20*size_of(rawptr))
+#assert(offset_of(Text_Format_VTable,SetTrimming)==9*size_of(rawptr))
+#assert(offset_of(Text_Layout1_VTable,SetCharacterSpacing)==69*size_of(rawptr))
+#assert(offset_of(Inline_Object_VTable,Draw)==3*size_of(rawptr))

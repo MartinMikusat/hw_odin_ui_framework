@@ -35,9 +35,34 @@ main :: proc() {
     defer mem.tracking_allocator_destroy(&tracking)
     context.allocator=mem.tracking_allocator(&tracking)
     verify_layout()
+    verify_layout_style()
     verify_atlas_bounds()
     assert(len(tracking.allocation_map)==0 && len(tracking.bad_free_array)==0)
     fmt.println("DirectWrite layout, Unicode wrapping, caret positions and cleanup passed.")
+}
+
+verify_layout_style :: proc() {
+    state:text.Context
+    assert(text.context_init(&state)>=0)
+    defer text.context_destroy(&state)
+    plain,status:=text.layout_create(&state,"ABCDEFGHIJKLMNOPQRSTUVWXYZ","Consolas",12,1000,false)
+    assert(status>=0)
+    defer text.layout_destroy(&plain)
+    spaced,spacing_status:=text.layout_create(&state,plain.text,"Consolas",12,1000,false,2)
+    assert(spacing_status>=0 && spaced.metrics.width>plain.metrics.width)
+    defer text.layout_destroy(&spaced)
+    trimmed,trimming_status:=text.layout_create(&state,plain.text,"Consolas",12,40,false,0,true)
+    assert(trimming_status>=0)
+    defer text.layout_destroy(&trimmed)
+    line:text.Line_Metrics
+    count:u32
+    assert(trimmed.native->GetLineMetrics(&line,1,&count)>=0 && count==1 && bool(line.trimmed))
+    full_glyphs,full_status:=text.layout_glyphs(&state,&plain)
+    assert(full_status>=0)
+    defer text.glyph_buffer_destroy(&full_glyphs)
+    glyphs,glyph_status:=text.layout_glyphs(&state,&trimmed)
+    assert(glyph_status>=0 && len(glyphs.glyphs)>0 && len(glyphs.glyphs)<len(full_glyphs.glyphs))
+    defer text.glyph_buffer_destroy(&glyphs)
 }
 
 verify_layout :: proc() {
