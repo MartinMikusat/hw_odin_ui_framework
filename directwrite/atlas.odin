@@ -82,6 +82,7 @@ begin_frame :: proc(state:^Context,scale:f32,io:atlas.IO)->win.HRESULT {
     clear(&value.retired)
     value.io=io
     value.frame+=1
+    state.text_error=0
     value.scale=scale
     value.retired_this_frame=false
     return 0

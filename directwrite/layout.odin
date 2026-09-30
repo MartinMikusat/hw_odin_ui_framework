@@ -17,6 +17,12 @@ Context :: struct {
     factory2:^Factory2,
     allocator:mem.Allocator,
     atlas:Glyph_Atlas,
+    fonts:[dynamic]Font_Entry,
+    runs:[dynamic]Prepared_Run,
+    run_index:map[Run_Key]int,
+    run_bytes:int,
+    font_generation:u64,
+    text_error:win.HRESULT,
 }
 
 Layout :: struct {
@@ -37,11 +43,19 @@ context_init :: proc(value:^Context, allocator:=context.allocator)->win.HRESULT 
     assert(factory!=nil)
     value^={factory=cast(^Factory)factory,factory2=cast(^Factory2)factory,allocator=allocator}
     atlas_init(&value.atlas,allocator)
+    value.fonts=make([dynamic]Font_Entry,allocator)
+    value.runs=make([dynamic]Prepared_Run,allocator)
+    value.run_index=make(map[Run_Key]int,allocator)
     return result
 }
 
 context_destroy :: proc(value:^Context) {
     assert(value!=nil)
+    for &run in value.runs {release_prepared_run(value,&run)}
+    delete(value.runs)
+    delete(value.run_index)
+    for font in value.fonts {delete(font.name,value.allocator)}
+    delete(value.fonts)
     atlas_destroy(&value.atlas)
     if value.factory!=nil {_=value.factory.Release(cast(^win.IUnknown)value.factory)}
     value^={}
@@ -100,6 +114,10 @@ layout_create :: proc(value:^Context, text,family:string, size,width:f32, wrap:b
     }
     status=layout.native->GetMetrics(&layout.metrics)
     if status<0 {layout_destroy(&layout);return {},status}
+    if truncate {
+        layout.metrics.width=min(layout.metrics.width,width)
+        layout.metrics.width_with_whitespace=min(layout.metrics.width_with_whitespace,width)
+    }
     if text!="" {
         copy,err:=strings.clone(text,value.allocator)
         if err!=nil {layout_destroy(&layout);return {},OUT_OF_MEMORY}

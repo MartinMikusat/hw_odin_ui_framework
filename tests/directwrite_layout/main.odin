@@ -6,6 +6,7 @@ import "core:strings"
 import text "ui_framework:directwrite"
 import atlas "ui_framework:glyphatlas"
 import draw "ui_framework:draw"
+import ui "ui_framework:core"
 
 Atlas_Check :: struct {created,destroyed,uploaded,bound:int}
 
@@ -36,9 +37,49 @@ main :: proc() {
     context.allocator=mem.tracking_allocator(&tracking)
     verify_layout()
     verify_layout_style()
+    verify_backend()
     verify_atlas_bounds()
     assert(len(tracking.allocation_map)==0 && len(tracking.bad_free_array)==0)
     fmt.println("DirectWrite layout, Unicode wrapping, caret positions and cleanup passed.")
+}
+
+verify_backend :: proc() {
+    state:text.Context
+    assert(text.context_init(&state)>=0)
+    defer text.context_destroy(&state)
+    assert(text.register_font(&state,ui.Font_Handle(1),"Consolas")>=0)
+    fake:Atlas_Check
+    io:=atlas.IO{&fake,atlas_create,atlas_upload,atlas_destroy,atlas_bind}
+    assert(text.begin_frame(&state,2,io)>=0)
+    backend:=text.backend(&state)
+    prepared:=backend.prepare(backend.user_data,ui.Font_Handle(1),"cached text",12,0,0,false)
+    assert(prepared.run!=ui.Text_Run_ID(0) && prepared.metrics.width>0 && prepared.metrics.ascent>0)
+    bytes:=state.run_bytes
+    same:=backend.prepare(backend.user_data,ui.Font_Handle(1),"cached text",12,0,0,false)
+    assert(same==prepared && state.run_bytes==bytes && len(state.runs)==1)
+    unconstrained,unconstrained_status:=text.prepare_run(&state,ui.Font_Handle(1),"zero width",12,0,0,true)
+    assert(unconstrained_status>=0 && unconstrained.metrics.width>0)
+    list:draw.List
+    draw.list_init(&list)
+    defer draw.list_destroy(&list)
+    backend.emit(backend.user_data,&list,prepared.run,"cached",{0,0,200,40},{size=12},{1,1,1,1})
+    assert(state.text_error>=0 && len(list.batches)>0)
+    text.flush(&state)
+    assert(fake.uploaded>0)
+    for i in 2..<text.RUN_LIMIT {
+        source:=fmt.tprintf("run %d",i)
+        run,status:=text.prepare_run(&state,ui.Font_Handle(1),source,12,0,0,false)
+        assert(status>=0 && run.run!=ui.Text_Run_ID(0))
+    }
+    assert(len(state.runs)==text.RUN_LIMIT && len(state.run_index)==text.RUN_LIMIT && state.run_bytes<=text.RUN_BYTES_MAX)
+    _,full_status:=text.prepare_run(&state,ui.Font_Handle(1),"one more",12,0,0,false)
+    assert(full_status==text.OUT_OF_MEMORY && len(state.run_index)==text.RUN_LIMIT)
+    assert(text.begin_frame(&state,2,io)>=0)
+    replacement,replacement_status:=text.prepare_run(&state,ui.Font_Handle(1),"one more",12,0,0,false)
+    assert(replacement_status>=0 && replacement.run!=ui.Text_Run_ID(0))
+    assert(len(state.runs)==text.RUN_LIMIT && len(state.run_index)==text.RUN_LIMIT && state.run_bytes<=text.RUN_BYTES_MAX)
+    backend.emit(backend.user_data,&list,ui.Text_Run_ID(text.RUN_LIMIT),"stale",{0,0,200,40},{size=12},{1,1,1,1})
+    assert(state.text_error==text.INVALID_ARGUMENT)
 }
 
 verify_layout_style :: proc() {
