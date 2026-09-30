@@ -33,6 +33,7 @@ Layout :: struct {
     utf16_length:u32,
     metrics:Text_Metrics,
     allocator:mem.Allocator,
+    document_owned:bool,
 }
 
 Line_Range :: struct {byte_start,byte_end,next_byte:int}
@@ -140,6 +141,15 @@ layout_create_bounded :: proc(value:^Context,text,family:string,size,width:f32,w
         layout.text=copy
     }
     return layout,status
+}
+
+document_layout_set_width :: proc(value:^Layout,width:f32)->win.HRESULT {
+    assert(value!=nil && value.native!=nil && value.document_owned)
+    if math.is_nan(width) || math.is_inf(width) || width<=0 || width>LAYOUT_EXTENT_MAX {return INVALID_ARGUMENT}
+    status:=value.native->SetMaxWidth(width)
+    if status<0 {return status}
+    value.metrics={}
+    return value.native->GetMetrics(&value.metrics)
 }
 
 line_ranges :: proc(value:^Layout, allocator:=context.allocator)->([]Line_Range,win.HRESULT) {

@@ -167,7 +167,7 @@ Text_Layout1_VTable :: struct {
 }
 Text_Layout_VTable :: struct {
     format: Text_Format_VTable,
-    SetMaxWidth: rawptr,
+    SetMaxWidth: proc "system" (self:^Text_Layout,width:f32)->win.HRESULT,
     SetMaxHeight: rawptr,
     SetFontCollection: rawptr,
     SetFontFamilyName: rawptr,
