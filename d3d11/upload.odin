@@ -16,6 +16,7 @@ Upload_Buffer :: struct {native:^dx.IBuffer,capacity:u32}
 // Discard the frame if upload fails; partial data must not be encoded.
 upload_list :: proc(renderer:^Renderer,list:^draw.List,ranges:[]data.Batch_Range,path_ranges:[]data.Path_Batch_Range)->win.HRESULT {
     assert(renderer!=nil && renderer.device!=nil && renderer.immediate!=nil)
+    if renderer.atlas_error<0 {return renderer.atlas_error}
     if list==nil || len(list.batches)>BATCHES_MAX || len(ranges)!=len(list.batches) || len(path_ranges)!=len(list.batches) {return INVALID_ARGUMENT}
     quads,paths:=0,0
     for &batch in list.batches {

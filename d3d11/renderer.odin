@@ -3,6 +3,7 @@ package d3d11
 import win "core:sys/windows"
 import dx "vendor:directx/d3d11"
 import data "ui_framework:renderdata"
+import draw "ui_framework:draw"
 
 BYTECODE_BYTES_MAX :: 1024*1024
 INVALID_ARGUMENT :: win.HRESULT(-2147024809)
@@ -21,6 +22,10 @@ Renderer :: struct {
     rasterizer:^dx.IRasterizerState,
     linear_sampler,nearest_sampler:^dx.ISamplerState,
     quads,paths:Upload_Buffer,
+    textures:[dynamic]Texture,
+    texture_bytes:int,
+    white_texture:draw.Texture_Handle,
+    atlas_error:win.HRESULT,
 }
 
 QUAD_INPUT :: [10]dx.INPUT_ELEMENT_DESC{
@@ -42,9 +47,9 @@ PATH_INPUT :: [2]dx.INPUT_ELEMENT_DESC{
 
 // The renderer owns its device and immediate context; all calls use the host's
 // rendering thread. Shader slices are borrowed only during initialization.
-renderer_init :: proc(renderer:^Renderer,shaders:Shader_Bytes,software:=false,debug:=false)->win.HRESULT {
+renderer_init :: proc(renderer:^Renderer,shaders:Shader_Bytes,software:=false,debug:=false,allocator:=context.allocator)->win.HRESULT {
     assert(renderer!=nil)
-    assert(renderer^==Renderer{})
+    assert(renderer.device==nil && renderer.immediate==nil && len(renderer.textures)==0)
     bytecodes:=[4][]u8{shaders.quad_vertex,shaders.quad_fragment,shaders.path_vertex,shaders.path_fragment}
     for bytes in bytecodes {
         if len(bytes)<32 || len(bytes)>BYTECODE_BYTES_MAX || string(bytes[:4])!="DXBC" {return INVALID_ARGUMENT}
@@ -64,6 +69,12 @@ renderer_init :: proc(renderer:^Renderer,shaders:Shader_Bytes,software:=false,de
     result=renderer_init_shaders(&pending,shaders)
     if result<0 {return result}
     result=renderer_init_states(&pending)
+    if result<0 {return result}
+    pending.textures=make([dynamic]Texture,allocator)
+    pending.white_texture,result=texture_create(&pending,.Color,1,1)
+    if result<0 {return result}
+    white:=[4]u8{255,255,255,255}
+    result=texture_upload(&pending,pending.white_texture,0,0,1,1,white[:],4)
     if result<0 {return result}
     renderer^=pending
     complete=true
@@ -121,6 +132,8 @@ renderer_destroy :: proc(renderer:^Renderer) {
     if renderer.immediate!=nil {renderer.immediate->ClearState();renderer.immediate->Flush()}
     release(renderer.quads.native)
     release(renderer.paths.native)
+    for texture in renderer.textures {release(texture.view);release(texture.native)}
+    delete(renderer.textures)
     release(renderer.quad_layout)
     release(renderer.path_layout)
     release(renderer.quad_vertex)
