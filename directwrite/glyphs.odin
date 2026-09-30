@@ -5,6 +5,7 @@ import "base:runtime"
 import win "core:sys/windows"
 
 GLYPH_COUNT_MAX :: TEXT_BYTES_MAX
+DOCUMENT_GLYPH_COUNT_MAX :: DOCUMENT_BYTES_MAX
 GLYPH_SIDE_MAX :: 2048
 NO_INTERFACE :: win.HRESULT(-2147467262)
 NOT_IMPLEMENTED :: win.HRESULT(-2147467263)
@@ -25,6 +26,7 @@ Glyph_Buffer :: struct {
     allocator:mem.Allocator,
     factory:^Factory2,
     inline_depth:u32,
+    glyph_limit:int,
 }
 
 Glyph_Mask :: struct {
@@ -50,7 +52,20 @@ glyph_mask_destroy :: proc(value:^Glyph_Mask) {
 layout_glyphs :: proc(state:^Context,layout:^Layout)->(Glyph_Buffer,win.HRESULT) {
     assert(state!=nil && state.factory2!=nil)
     assert(layout!=nil && layout.native!=nil)
-    buffer:=Glyph_Buffer{allocator=state.allocator,factory=state.factory2}
+    return collect_layout_glyphs(state,layout,GLYPH_COUNT_MAX)
+}
+
+document_glyphs :: proc(state:^Context,layout:^Layout)->(Glyph_Buffer,win.HRESULT) {
+    assert(state!=nil && layout!=nil && layout.document_owner==state)
+    return collect_layout_glyphs(state,layout,DOCUMENT_GLYPH_COUNT_MAX)
+}
+
+@(private)
+collect_layout_glyphs :: proc(state:^Context,layout:^Layout,limit:int)->(Glyph_Buffer,win.HRESULT) {
+    assert(state!=nil && state.factory2!=nil)
+    assert(layout!=nil && layout.native!=nil)
+    assert(limit>0 && limit<=DOCUMENT_GLYPH_COUNT_MAX)
+    buffer:=Glyph_Buffer{allocator=state.allocator,factory=state.factory2,glyph_limit=limit}
     buffer.glyphs=make([dynamic]Glyph,state.allocator)
     buffer.fonts=make([dynamic]^win.IUnknown,state.allocator)
     renderer:=Text_Renderer{vtable=&GLYPH_RENDERER_VTABLE,references=1}
@@ -62,7 +77,8 @@ layout_glyphs :: proc(state:^Context,layout:^Layout)->(Glyph_Buffer,win.HRESULT)
 
 append_glyph_run :: proc(buffer:^Glyph_Buffer,x,y:f32,measuring:u32,run:^Glyph_Run,color:[4]f32,colored:bool)->win.HRESULT {
     if run==nil || run.font==nil || bool(run.sideways) {return NOT_IMPLEMENTED}
-    if run.count>u32(GLYPH_COUNT_MAX-len(buffer.glyphs)) {return OUT_OF_MEMORY}
+    assert(len(buffer.glyphs)<=buffer.glyph_limit)
+    if run.count>u32(buffer.glyph_limit-len(buffer.glyphs)) {return OUT_OF_MEMORY}
     if run.count==0 {return 0}
     assert(run.indices!=nil && run.advances!=nil)
     _,font_error:=append(&buffer.fonts,run.font)
@@ -126,7 +142,7 @@ renderer_glyphs :: proc "system" (_:^Text_Renderer,data:rawptr,x,y:f32,measuring
     if status<0 {return status}
     assert(layers!=nil)
     defer _=layers.Release(cast(^win.IUnknown)layers)
-    for _ in 0..<GLYPH_COUNT_MAX {
+    for _ in 0..<buffer.glyph_limit {
         has_run:win.BOOL
         status=layers->MoveNext(&has_run)
         if status<0 {return status}
