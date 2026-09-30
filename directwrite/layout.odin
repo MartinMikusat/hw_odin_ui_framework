@@ -151,19 +151,18 @@ line_ranges :: proc(value:^Layout, allocator:=context.allocator)->([]Line_Range,
     byte_start,utf16_start:=0,u32(0)
     for line,index in metrics {
         assert(line.length<=value.utf16_length-utf16_start)
+        assert(line.newline_length<=line.length)
         byte_next:=byte_start
+        byte_end:=byte_start
+        content_units:=line.length-line.newline_length
         units:=u32(0)
         for character,offset in value.text[byte_start:] {
             if units>=line.length {break}
             units+=character>0xffff ? 2 : 1
             byte_next=byte_start+offset+utf8.rune_size(character)
+            if units<=content_units {byte_end=byte_next}
         }
         assert(units==line.length)
-        byte_end:=byte_next
-        if line.newline_length>0 {
-            if byte_end>byte_start && value.text[byte_end-1]=='\n' {byte_end-=1}
-            if byte_end>byte_start && value.text[byte_end-1]=='\r' {byte_end-=1}
-        }
         ranges[index]={byte_start,byte_end,byte_next}
         byte_start=byte_next
         utf16_start+=line.length

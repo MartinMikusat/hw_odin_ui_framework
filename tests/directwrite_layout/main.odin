@@ -142,6 +142,16 @@ verify_layout :: proc() {
         next=line.next_byte
     }
     assert(next==len(source) && blank && unicode)
+    separators,separators_status:=text.layout_create(&state,"a\u2028b\r\nc\n","Consolas",12,1000,true)
+    assert(separators_status>=0)
+    defer text.layout_destroy(&separators)
+    separated,separated_status:=text.line_ranges(&separators)
+    assert(separated_status>=0 && len(separated)==4)
+    defer delete(separated)
+    assert(separators.text[separated[0].byte_start:separated[0].byte_end]=="a")
+    assert(separators.text[separated[1].byte_start:separated[1].byte_end]=="b")
+    assert(separators.text[separated[2].byte_start:separated[2].byte_end]=="c")
+    assert(separated[3].byte_start==len(separators.text) && separated[3].byte_end==len(separators.text))
     x,y,position_status:=text.caret_position(&layout,3)
     assert(position_status>=0 && x>0)
     index,index_status:=text.caret_index(&layout,x,y)
