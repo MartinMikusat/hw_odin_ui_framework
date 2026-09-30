@@ -184,6 +184,23 @@ verify_layout :: proc() {
     assert(bad_size_status==text.INVALID_ARGUMENT && bad_size.native==nil)
     glyph_layout,glyph_layout_status:=text.layout_create(&state,"office café 😀 العربية","Consolas",12,1000,false)
     assert(glyph_layout_status>=0)
+    needed,query_status:=text.selection_metrics(&glyph_layout,0,glyph_layout.utf16_length,nil)
+    assert(query_status==text.INSUFFICIENT_BUFFER && needed>=2)
+    selection:=make([]text.Hit_Test_Metrics,needed)
+    defer delete(selection)
+    selected,selection_status:=text.selection_metrics(&glyph_layout,0,glyph_layout.utf16_length,selection)
+    assert(selection_status>=0 && selected==needed)
+    units:u32
+    for region in selection {
+        assert(region.position<glyph_layout.utf16_length && region.length<=glyph_layout.utf16_length-region.position)
+        assert(region.width>=0 && region.height>0)
+        units+=region.length
+    }
+    assert(units==glyph_layout.utf16_length)
+    _,invalid_range:=text.selection_metrics(&glyph_layout,glyph_layout.utf16_length,1,selection)
+    assert(invalid_range==text.INVALID_ARGUMENT)
+    empty_count,empty_range:=text.selection_metrics(&glyph_layout,glyph_layout.utf16_length,0,nil)
+    assert(empty_range>=0 && empty_count==0)
     glyphs,glyph_status:=text.layout_glyphs(&state,&glyph_layout)
     assert(glyph_status>=0 && len(glyphs.glyphs)>0 && len(glyphs.fonts)>0)
     defer text.glyph_buffer_destroy(&glyphs)

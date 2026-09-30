@@ -216,12 +216,13 @@ Text_Layout_VTable :: struct {
     DetermineMinWidth: rawptr,
     HitTestPoint: proc "system" (self:^Text_Layout, x,y:f32, trailing,inside:^win.BOOL, metrics:^Hit_Test_Metrics)->win.HRESULT,
     HitTestTextPosition: proc "system" (self:^Text_Layout, position:u32, trailing:win.BOOL, x,y:^f32, metrics:^Hit_Test_Metrics)->win.HRESULT,
-    HitTestTextRange: rawptr,
+    HitTestTextRange: proc "system" (self:^Text_Layout, position,length:u32, x,y:f32, metrics:[^]Hit_Test_Metrics, capacity:u32, count:^u32)->win.HRESULT,
 }
 
 #assert(size_of(Text_Metrics)==36)
 #assert(size_of(Line_Metrics)==24)
 #assert(size_of(Hit_Test_Metrics)==36)
+#assert(offset_of(Text_Layout_VTable,HitTestTextRange)==66*size_of(rawptr))
 #assert(offset_of(Factory_VTable,CreateTextFormat)==15*size_of(rawptr))
 #assert(offset_of(Factory_VTable,CreateTextLayout)==18*size_of(rawptr))
 #assert(offset_of(Text_Layout_VTable,GetMetrics)==60*size_of(rawptr))

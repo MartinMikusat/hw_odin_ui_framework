@@ -12,6 +12,7 @@ DOCUMENT_BYTES_MAX :: 8*1024*1024
 LAYOUT_EXTENT_MAX :: f32(1e9)
 INVALID_ARGUMENT :: win.HRESULT(-2147024809)
 OUT_OF_MEMORY :: win.HRESULT(-2147024882)
+INSUFFICIENT_BUFFER :: transmute(win.HRESULT)u32(0x8007007a)
 
 Context :: struct {
     factory:^Factory,
@@ -230,4 +231,14 @@ caret_index :: proc(value:^Layout,x,y:f32)->(u32,win.HRESULT) {
     if bool(trailing) {index+=metrics.length}
     assert(index<=value.utf16_length)
     return index,status
+}
+
+selection_metrics :: proc(value:^Layout,start,length:u32,output:[]Hit_Test_Metrics)->(int,win.HRESULT) {
+    assert(value!=nil && value.native!=nil)
+    if start>value.utf16_length || length>value.utf16_length-start || len(output)>DOCUMENT_BYTES_MAX+1 {return 0,INVALID_ARGUMENT}
+    if length==0 {return 0,0}
+    count:u32
+    status:=value.native->HitTestTextRange(start,length,0,0,raw_data(output),u32(len(output)),&count)
+    if status>=0 {assert(int(count)<=len(output))}
+    return int(count),status
 }
