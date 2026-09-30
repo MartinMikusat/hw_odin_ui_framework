@@ -80,7 +80,9 @@ Build `ui.metallib` with `scripts/build-metallib.sh OUTPUT.metallib` as part of 
 application build, embed it (`#load`), and pass it to `metal.renderer_init` as
 `metallib_data`, or pass a bundled file as `metallib_path`. A missing or invalid
 library fails initialization. Changing `shaders/ui.metal` requires rebuilding the
-library.
+library. Windows builds compile `ui.hlsl` with `scripts/build-hlsl.ps1 OUTPUT`
+into four Shader Model 5 `.cso` files. Both backends use `shaders/ui_common.h`
+for vertex placement, analytic shapes, color sampling and path coverage.
 
 ## Frame contract
 
