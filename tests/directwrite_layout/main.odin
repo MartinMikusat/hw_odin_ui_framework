@@ -259,7 +259,7 @@ verify_document_layout :: proc() {
     _,small_status:=text.layout_create(&state,source,"Consolas",12,200,true)
     assert(small_status==text.INVALID_ARGUMENT)
     document,status:=text.document_layout_create(&state,ui.Font_Handle(1),source,12,0,200)
-    assert(status>=0 && document.text==source)
+    assert(status>=0 && document.text==source && document.document_owner==&state && state.document_count==1)
     defer text.layout_destroy(&document)
     starts:[]u32
     ranges,range_status:=text.line_ranges(&document,utf16_starts=&starts)
@@ -286,5 +286,7 @@ verify_document_layout :: proc() {
     oversized:=strings.repeat("x",text.DOCUMENT_BYTES_MAX+1) or_else panic("document boundary allocation")
     defer delete(oversized)
     _,large_status:=text.document_layout_create(&state,ui.Font_Handle(1),oversized,12,0,200)
-    assert(large_status==text.INVALID_ARGUMENT)
+    assert(large_status==text.INVALID_ARGUMENT && state.document_count==1)
+    text.layout_destroy(&document)
+    assert(state.document_count==0 && document.native==nil && document.document_owner==nil)
 }

@@ -22,6 +22,7 @@ Context :: struct {
     runs:[dynamic]Prepared_Run,
     run_index:map[Run_Key]int,
     run_bytes:int,
+    document_count:int,
     font_generation:u64,
     text_error:win.HRESULT,
     embedded_font:Embedded_Font,
@@ -33,7 +34,7 @@ Layout :: struct {
     utf16_length:u32,
     metrics:Text_Metrics,
     allocator:mem.Allocator,
-    document_owned:bool,
+    document_owner:^Context,
 }
 
 Line_Range :: struct {byte_start,byte_end,next_byte:int}
@@ -55,7 +56,7 @@ context_init :: proc(value:^Context, allocator:=context.allocator)->win.HRESULT 
 }
 
 context_destroy :: proc(value:^Context) {
-    assert(value!=nil)
+    assert(value!=nil && value.document_count==0)
     for &run in value.runs {release_prepared_run(value,&run)}
     delete(value.runs)
     delete(value.run_index)
@@ -69,8 +70,11 @@ context_destroy :: proc(value:^Context) {
 
 layout_destroy :: proc(value:^Layout) {
     assert(value!=nil)
+    owner:=value.document_owner
+    if owner!=nil {assert(owner.factory!=nil && owner.document_count>0)}
     if value.native!=nil {_=(cast(^win.IUnknown)value.native)->Release()}
     if value.text!="" {delete(value.text,value.allocator)}
+    if owner!=nil {owner.document_count-=1}
     value^={}
 }
 
@@ -144,7 +148,7 @@ layout_create_bounded :: proc(value:^Context,text,family:string,size,width:f32,w
 }
 
 document_layout_set_width :: proc(value:^Layout,width:f32)->win.HRESULT {
-    assert(value!=nil && value.native!=nil && value.document_owned)
+    assert(value!=nil && value.native!=nil && value.document_owner!=nil && value.document_owner.factory!=nil)
     if math.is_nan(width) || math.is_inf(width) || width<=0 || width>LAYOUT_EXTENT_MAX {return INVALID_ARGUMENT}
     status:=value.native->SetMaxWidth(width)
     if status<0 {return status}

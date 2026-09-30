@@ -32,7 +32,7 @@ document_layout_create :: proc(value:^Context,font:ui.Font_Handle,text:string,si
     entry:=font_entry(value,font)
     if entry==nil {return {},INVALID_ARGUMENT}
     layout,status:=layout_create_bounded(value,text,entry.name,size,maximum_width,true,tracking,false,entry.collection,tab_width,DOCUMENT_BYTES_MAX)
-    if status>=0 {layout.document_owned=true}
+    if status>=0 {layout.document_owner=value;value.document_count+=1}
     return layout,status
 }
 Run_Key :: struct {
