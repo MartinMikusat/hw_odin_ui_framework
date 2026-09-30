@@ -1,6 +1,7 @@
 package renderdata
 
 import draw "ui_framework:draw"
+import "core:math"
 
 Quad_Instance :: struct {
 	dst:              [4]f32,
@@ -110,3 +111,20 @@ pack_path_vertices :: proc(
 #assert(size_of(Path_Vertex)==16)
 #assert(size_of(Batch_Uniforms)==48)
 #assert(size_of(Path_Uniforms)==80)
+
+scissor_rect :: proc(key:draw.Batch_Key,viewport:[2]f32,scale:f32)->([4]u32,bool) {
+    width,height:=viewport[0]*scale,viewport[1]*scale
+    if math.is_nan(width) || math.is_inf(width) || math.is_nan(height) || math.is_inf(height) || scale<=0 || width<=0 || height<=0 || f64(width)>=4294967296 || f64(height)>=4294967296 {return {},false}
+    x0,y0,x1,y1:=f32(0),f32(0),width,height
+    if key.clip_set {
+        clip:=key.clip
+        if math.is_nan(clip.x) || math.is_inf(clip.x) || math.is_nan(clip.y) || math.is_inf(clip.y) || math.is_nan(clip.w) || math.is_inf(clip.w) || math.is_nan(clip.h) || math.is_inf(clip.h) {return {},false}
+        x0=clamp(clip.x*scale,0,width)
+        y0=clamp((viewport[1]-clip.y-clip.h)*scale,0,height)
+        x1=clamp((clip.x+clip.w)*scale,0,width)
+        y1=clamp((viewport[1]-clip.y)*scale,0,height)
+    }
+    w,h:=u32(max(f32(0),x1-x0)),u32(max(f32(0),y1-y0))
+    if w==0 || h==0 {return {},false}
+    return {u32(x0),u32(y0),w,h},true
+}

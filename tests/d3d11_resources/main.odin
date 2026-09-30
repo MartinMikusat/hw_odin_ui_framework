@@ -48,6 +48,7 @@ verify_resources :: proc() {
         verify_upload(&state)
         verify_textures(&state)
         verify_glyph_upload(&state)
+        verify_encoding(&state)
         verify_atlas_failure(&state)
         blend:dx.BLEND_DESC
         state.over_blend->GetDesc(&blend)
@@ -227,4 +228,75 @@ verify_glyph_upload :: proc(state:^renderer.Renderer) {
     }
     text.context_destroy(&font)
     assert(state.texture_bytes==4)
+}
+
+verify_encoding :: proc(state:^renderer.Renderer) {
+    descriptor:=dx.TEXTURE2D_DESC{Width=96,Height=64,MipLevels=1,ArraySize=1,Format=.R8G8B8A8_UNORM,SampleDesc={Count=1},Usage=.DEFAULT,BindFlags={.RENDER_TARGET}}
+    target:^dx.ITexture2D
+    assert(state.device->CreateTexture2D(&descriptor,nil,&target)>=0)
+    defer _=target->Release()
+    color:^dx.IRenderTargetView
+    assert(state.device->CreateRenderTargetView(target,nil,&color)>=0)
+    defer _=color->Release()
+    descriptor.Format=.D24_UNORM_S8_UINT
+    descriptor.BindFlags={.DEPTH_STENCIL}
+    depth:^dx.ITexture2D
+    assert(state.device->CreateTexture2D(&descriptor,nil,&depth)>=0)
+    defer _=depth->Release()
+    stencil:^dx.IDepthStencilView
+    assert(state.device->CreateDepthStencilView(depth,nil,&stencil)>=0)
+    defer _=stencil->Release()
+    rules:=[2]draw.Path_Fill_Rule{.Non_Zero,.Even_Odd}
+    for rule in rules {
+        list:draw.List
+        draw.list_init(&list,pixel_ratio=2)
+        defer draw.list_destroy(&list)
+        draw.push_clip(&list,{2,2,4,8})
+        draw.solid(&list,{2,2,8,8},{1,0,0,0.5},edge_softness=0.5)
+        draw.pop_clip(&list)
+        draw.path_begin(&list)
+        draw.path_circle(&list,16,32,10)
+        draw.path_fill(&list,{1,0,0,1})
+        draw.path_begin(&list)
+        draw.path_circle(&list,48,32,13)
+        draw.path_circle(&list,48,32,6)
+        draw.path_solidity(&list,.Hole)
+        draw.path_fill(&list,{0,1,0,1},rule)
+        draw.path_begin(&list)
+        draw.path_move_to(&list,70,20)
+        draw.path_line_to(&list,90,44)
+        draw.path_stroke(&list,{0,0,1,1},6,cap=.Round)
+        assert(renderer.encode(state,color,nil,&list,{96,64})==renderer.INVALID_ARGUMENT)
+        assert(renderer.encode(state,color,stencil,&list,{96,64})>=0)
+        verify_encoded_pixels(state,target)
+    }
+    state.immediate->OMSetRenderTargets(0,nil,nil)
+}
+
+verify_encoded_pixels :: proc(state:^renderer.Renderer,target:^dx.ITexture2D) {
+    descriptor:dx.TEXTURE2D_DESC
+    target->GetDesc(&descriptor)
+    descriptor.Usage=.STAGING
+    descriptor.BindFlags={}
+    descriptor.CPUAccessFlags={.READ}
+    staging:^dx.ITexture2D
+    assert(state.device->CreateTexture2D(&descriptor,nil,&staging)>=0)
+    defer _=staging->Release()
+    state.immediate->CopyResource(staging,target)
+    mapped:dx.MAPPED_SUBRESOURCE
+    assert(state.immediate->Map(staging,0,.READ,{},&mapped)>=0)
+    defer state.immediate->Unmap(staging,0)
+    bytes:=cast([^]u8)mapped.pData
+    circle:=32*int(mapped.RowPitch)+16*4
+    ring:=32*int(mapped.RowPitch)+58*4
+    hole:=32*int(mapped.RowPitch)+48*4
+    stroke:=32*int(mapped.RowPitch)+80*4
+    solid:=58*int(mapped.RowPitch)+3*4
+    clipped:=58*int(mapped.RowPitch)+7*4
+    assert(bytes[circle]>240 && bytes[circle+1]<10 && bytes[circle+2]<10)
+    assert(bytes[ring+1]>240 && bytes[ring]<10 && bytes[ring+2]<10)
+    assert(bytes[hole]<10 && bytes[hole+1]<10 && bytes[hole+2]<10)
+    assert(bytes[stroke+2]>240 && bytes[stroke]<10 && bytes[stroke+1]<10)
+    assert(bytes[solid]>=126 && bytes[solid]<=129 && bytes[solid+3]==255)
+    assert(bytes[clipped]==0 && bytes[clipped+1]==0 && bytes[clipped+2]==0)
 }

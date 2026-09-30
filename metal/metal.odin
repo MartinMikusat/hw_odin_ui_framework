@@ -623,25 +623,11 @@ set_batch_scissor :: proc(
 	viewport_points: [2]f32,
 	backing_scale: f32,
 ) -> bool {
-	clip := MTL_Scissor_Rect{
-		width = uint(max(f32(1), viewport_points[0]*backing_scale)),
-		height = uint(max(f32(1), viewport_points[1]*backing_scale)),
-	}
-	if key.clip_set {
-		x0 := max(f32(0), key.clip.x*backing_scale)
-		y0 := max(f32(0), (viewport_points[1]-key.clip.y-key.clip.h)*backing_scale)
-		x1 := min(viewport_points[0]*backing_scale, (key.clip.x+key.clip.w)*backing_scale)
-		y1 := min(viewport_points[1]*backing_scale, (viewport_points[1]-key.clip.y)*backing_scale)
-		clip = {
-			x = uint(x0),
-			y = uint(y0),
-			width = uint(max(f32(0), x1-x0)),
-			height = uint(max(f32(0), y1-y0)),
-		}
-		if clip.width == 0 || clip.height == 0 {return false}
-	}
-	msg_void_scissor(encoder, sel_registerName("setScissorRect:"), clip)
-	return true
+    rect,visible:=renderdata.scissor_rect(key,viewport_points,backing_scale)
+    if !visible {return false}
+    clip:=MTL_Scissor_Rect{x=uint(rect[0]),y=uint(rect[1]),width=uint(rect[2]),height=uint(rect[3])}
+    msg_void_scissor(encoder,sel_registerName("setScissorRect:"),clip)
+    return true
 }
 
 encode_path_range :: proc(
