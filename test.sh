@@ -7,6 +7,7 @@ mkdir -p "$TEMP"
 cd "$TEMP"
 hw-odin check "$ROOT/tests/directwrite_layout" -target:windows_amd64 -collection:ui_framework="$ROOT" -thread-count:1 -warnings-as-errors -vet -strict-style
 hw-odin check "$ROOT/tools/compile_hlsl" -target:windows_amd64 -thread-count:1 -warnings-as-errors -vet -strict-style
+hw-odin check "$ROOT/tests/d3d11_resources" -target:windows_amd64 -collection:ui_framework="$ROOT" -thread-count:1 -warnings-as-errors -vet -strict-style
 "$ROOT/scripts/build-metallib.sh" "$TEMP/ui.metallib"
 
 hw-odin test "$ROOT/draw" -collection:ui_framework="$ROOT" -vet -strict-style -define:ODIN_TEST_FAIL_ON_BAD_MEMORY=true -no-threaded-checker
