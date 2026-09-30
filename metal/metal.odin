@@ -5,6 +5,7 @@ import "core:dynlib"
 import "core:strings"
 import coretext "ui_framework:coretext"
 import draw "ui_framework:draw"
+import renderdata "ui_framework:renderdata"
 import Metal "vendor:darwin/Metal"
 
 Object :: rawptr
@@ -47,53 +48,12 @@ MTL_Scissor_Rect :: struct {
 	x, y, width, height: uint,
 }
 
-GPU_Quad_Instance :: struct {
-	dst:              [4]f32,
-	src:              [4]f32,
-	colors:           [4][4]f32,
-	corner_radii:     [4]f32,
-	effect_offset:    [2]f32,
-	border_thickness: f32,
-	edge_softness:    f32,
-	texture_mode:     u32,
-	corner_shape:     u32,
-	_tail:            [2]u32,
-}
-
-GPU_Path_Vertex :: struct {
-	position: [2]f32,
-	coverage: [2]f32,
-}
-
-Batch_Uniforms :: struct {
-	viewport:    [2]f32,
-	opacity:     f32,
-	padding:     f32,
-	transform:   [4]f32,
-	translation: [2]f32,
-	_tail:       [2]f32,
-}
-
-Batch_Range :: struct {
-	start, count: uint,
-}
-
-Path_Batch_Range :: struct {
-	fill, fringe, cover: Batch_Range,
-}
-
-Path_Uniforms :: struct {
-	viewport:        [2]f32,
-	opacity:         f32,
-	padding:         f32,
-	transform:       [4]f32,
-	translation:     [2]f32,
-	_transform_tail: [2]f32,
-	color:           [4]f32,
-	stroke_mult:     f32,
-	stroke_threshold: f32,
-	_tail:           [2]f32,
-}
+GPU_Quad_Instance :: renderdata.Quad_Instance
+GPU_Path_Vertex :: renderdata.Path_Vertex
+Batch_Uniforms :: renderdata.Batch_Uniforms
+Batch_Range :: renderdata.Batch_Range
+Path_Batch_Range :: renderdata.Path_Batch_Range
+Path_Uniforms :: renderdata.Path_Uniforms
 
 Renderer :: struct {
 	allocator:        mem.Allocator,
@@ -657,59 +617,6 @@ texture_for_handle :: proc(renderer: ^Renderer, handle: draw.Texture_Handle) -> 
 	return renderer.textures[index]
 }
 
-gpu_instance :: proc(instance: draw.Quad_Instance) -> GPU_Quad_Instance {
-	return {
-		dst = {instance.dst.x, instance.dst.y, instance.dst.w, instance.dst.h},
-		src = {instance.src.x, instance.src.y, instance.src.w, instance.src.h},
-		colors = instance.colors,
-		corner_radii = instance.corner_radii,
-		effect_offset = instance.effect_offset,
-		border_thickness = instance.border_thickness,
-		edge_softness = instance.edge_softness,
-		texture_mode = u32(instance.texture_mode),
-		corner_shape = u32(instance.corner_shape),
-	}
-}
-
-gpu_path_vertex :: proc(vertex: draw.Path_Vertex) -> GPU_Path_Vertex {
-	return {position = vertex.position, coverage = vertex.coverage}
-}
-
-list_requires_stencil :: proc(list: ^draw.List) -> bool {
-	if list == nil {return false}
-	for &batch in list.batches {
-		if batch.kind == .Path && batch.path.kind != .Convex_Fill {return true}
-	}
-	return false
-}
-
-path_vertex_count :: proc(list: ^draw.List) -> int {
-	total := 0
-	if list == nil {return total}
-	for &batch in list.batches {
-		if batch.kind != .Path {continue}
-		total += len(batch.path.fill)+len(batch.path.fringe)+len(batch.path.cover)
-	}
-	return total
-}
-
-pack_path_vertices :: proc(
-	list: ^draw.List,
-	vertices: []GPU_Path_Vertex,
-	ranges: []Path_Batch_Range,
-) {
-	cursor := 0
-	for &batch, index in list.batches {
-		if batch.kind != .Path {continue}
-		ranges[index].fill = {uint(cursor), uint(len(batch.path.fill))}
-		for vertex in batch.path.fill {vertices[cursor] = gpu_path_vertex(vertex); cursor += 1}
-		ranges[index].fringe = {uint(cursor), uint(len(batch.path.fringe))}
-		for vertex in batch.path.fringe {vertices[cursor] = gpu_path_vertex(vertex); cursor += 1}
-		ranges[index].cover = {uint(cursor), uint(len(batch.path.cover))}
-		for vertex in batch.path.cover {vertices[cursor] = gpu_path_vertex(vertex); cursor += 1}
-	}
-}
-
 set_batch_scissor :: proc(
 	encoder: Object,
 	key: draw.Batch_Key,
@@ -913,7 +820,7 @@ upload_list :: proc(
 	for &batch in list.batches {
 		if batch.kind == .Quad {quad_total += len(batch.instances)}
 	}
-	path_total := path_vertex_count(list)
+	path_total := renderdata.path_vertex_count(list)
 	ranges = make([]Batch_Range, len(list.batches), context.temp_allocator)
 	path_ranges = make([]Path_Batch_Range, len(list.batches), context.temp_allocator)
 	if quad_total > 0 {
@@ -924,7 +831,7 @@ upload_list :: proc(
 			if batch.kind != .Quad {continue}
 			ranges[index] = {uint(cursor), uint(len(batch.instances))}
 			for instance in batch.instances {
-				instances[cursor] = gpu_instance(instance)
+				instances[cursor] = renderdata.quad_instance(instance)
 				cursor += 1
 			}
 		}
@@ -932,7 +839,7 @@ upload_list :: proc(
 	}
 	if path_total > 0 {
 		paths = upload_reserve(renderer, command_buffer, uint(path_total)*size_of(GPU_Path_Vertex)) or_return
-		pack_path_vertices(list, ([^]GPU_Path_Vertex)(paths.bytes)[:path_total], path_ranges)
+		renderdata.pack_path_vertices(list, ([^]GPU_Path_Vertex)(paths.bytes)[:path_total], path_ranges)
 	}
 	ok = true
 	return
@@ -952,7 +859,7 @@ encode :: proc(
 	if renderer == nil || renderer.pipeline == nil || command_buffer == nil || encoder == nil || list == nil {
 		return false
 	}
-	if list_requires_stencil(list) && !stencil_available {return false}
+	if renderdata.list_requires_stencil(list) && !stencil_available {return false}
 	quads, paths, ranges, path_ranges, uploaded := upload_list(renderer, command_buffer, list)
 	if !uploaded {return false}
 	for &batch, index in list.batches {
@@ -1189,7 +1096,7 @@ encode_to_drawable :: proc(
 	}
 	pixel_w := uint(max(f32(1), viewport_points[0]*backing_scale))
 	pixel_h := uint(max(f32(1), viewport_points[1]*backing_scale))
-	stencil_available := list_requires_stencil(list)
+	stencil_available := renderdata.list_requires_stencil(list)
 	if stencil_available && !ensure_stencil_texture(renderer, pixel_w, pixel_h) {return false}
 	buffer, path_buffer, ranges, path_ranges, uploaded := upload_list(renderer, command_buffer, list)
 	if !uploaded {return false}

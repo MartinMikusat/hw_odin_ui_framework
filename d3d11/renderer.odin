@@ -2,6 +2,7 @@ package d3d11
 
 import win "core:sys/windows"
 import dx "vendor:directx/d3d11"
+import data "ui_framework:renderdata"
 
 BYTECODE_BYTES_MAX :: 1024*1024
 INVALID_ARGUMENT :: win.HRESULT(-2147024809)
@@ -19,6 +20,7 @@ Renderer :: struct {
     over_blend,max_blend,stencil_blend:^dx.IBlendState,
     rasterizer:^dx.IRasterizerState,
     linear_sampler,nearest_sampler:^dx.ISamplerState,
+    quads,paths:Upload_Buffer,
 }
 
 QUAD_INPUT :: [10]dx.INPUT_ELEMENT_DESC{
@@ -117,6 +119,8 @@ renderer_init_states :: proc(renderer:^Renderer)->win.HRESULT {
 renderer_destroy :: proc(renderer:^Renderer) {
     if renderer==nil {return}
     if renderer.immediate!=nil {renderer.immediate->ClearState();renderer.immediate->Flush()}
+    release(renderer.quads.native)
+    release(renderer.paths.native)
     release(renderer.quad_layout)
     release(renderer.path_layout)
     release(renderer.quad_vertex)
@@ -133,6 +137,12 @@ renderer_destroy :: proc(renderer:^Renderer) {
     release(renderer.device)
     renderer^={}
 }
+
+#assert(offset_of(data.Quad_Instance,colors)==32)
+#assert(offset_of(data.Quad_Instance,effect_offset)==112)
+#assert(offset_of(data.Quad_Instance,border_thickness)==120)
+#assert(offset_of(data.Quad_Instance,texture_mode)==128)
+#assert(offset_of(data.Path_Vertex,coverage)==8)
 
 release :: proc(value:rawptr) {
     if value!=nil {_=(cast(^win.IUnknown)value)->Release()}
