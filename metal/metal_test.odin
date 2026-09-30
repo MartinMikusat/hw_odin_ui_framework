@@ -18,7 +18,6 @@ test_renderer_init :: proc(t: ^testing.T, renderer: ^Renderer, device: Object) -
 
 @(test)
 renderer_requires_a_precompiled_library_test :: proc(t: ^testing.T) {
-	if !load_objc() {testing.expect(t, false); return}
 	device := MTLCreateSystemDefaultDevice()
 	if device == nil {testing.expect(t, false); return}
 	defer release(device)
@@ -43,7 +42,6 @@ foreign metal_framework {
 
 @(test)
 offscreen_vector_paths_render_convex_compound_and_stroked_geometry_test :: proc(t: ^testing.T) {
-	if !load_objc() {testing.expect(t, false); return}
 	device := MTLCreateSystemDefaultDevice()
 	if device == nil {testing.expect(t, false); return}
 	renderer: Renderer
@@ -115,13 +113,12 @@ offscreen_vector_paths_render_convex_compound_and_stroked_geometry_test :: proc(
 }
 
 msg_void_get_bytes :: proc(receiver: Object, selector: Selector, bytes: rawptr, bytes_per_row: uint, region: MTL_Region, level: uint) {
-	p := cast(proc "c" (_: Object, _: Selector, _: rawptr, _: uint, _: MTL_Region, _: uint))send_address
+	p := cast(proc "c" (_: Object, _: Selector, _: rawptr, _: uint, _: MTL_Region, _: uint))objc_msgSend
 	p(receiver, selector, bytes, bytes_per_row, region, level)
 }
 
 @(test)
 offscreen_composition_preserves_submission_order_test :: proc(t: ^testing.T) {
-	if !load_objc() {testing.expect(t, false); return}
 	device := MTLCreateSystemDefaultDevice()
 	if device == nil {testing.expect(t, false); return}
 	renderer: Renderer
@@ -184,7 +181,6 @@ offscreen_composition_preserves_submission_order_test :: proc(t: ^testing.T) {
 
 @(test)
 offscreen_squircle_contour_and_border_are_distinct_from_round_test :: proc(t: ^testing.T) {
-	if !load_objc() {testing.expect(t, false); return}
 	device := MTLCreateSystemDefaultDevice()
 	if device == nil {testing.expect(t, false); return}
 	renderer: Renderer
@@ -265,7 +261,6 @@ offscreen_squircle_contour_and_border_are_distinct_from_round_test :: proc(t: ^t
 
 @(test)
 offscreen_y_band_keeps_top_half_ring_and_clears_the_mid :: proc(t: ^testing.T) {
-	if !load_objc() {testing.expect(t, false); return}
 	device := MTLCreateSystemDefaultDevice()
 	if device == nil {testing.expect(t, false); return}
 	renderer: Renderer
@@ -334,7 +329,6 @@ offscreen_y_band_keeps_top_half_ring_and_clears_the_mid :: proc(t: ^testing.T) {
 
 @(test)
 offscreen_y_ramp_ring_fades_from_top_highlight_to_bottom_glow_test :: proc(t: ^testing.T) {
-	if !load_objc() {testing.expect(t, false); return}
 	device := MTLCreateSystemDefaultDevice()
 	if device == nil {testing.expect(t, false); return}
 	renderer: Renderer
@@ -406,7 +400,6 @@ offscreen_y_ramp_ring_fades_from_top_highlight_to_bottom_glow_test :: proc(t: ^t
 
 @(test)
 offscreen_inset_shadow_stays_clipped_and_favors_its_offset_edge_test :: proc(t: ^testing.T) {
-	if !load_objc() {testing.expect(t, false); return}
 	device := MTLCreateSystemDefaultDevice()
 	if device == nil {testing.expect(t, false); return}
 	renderer: Renderer
@@ -472,7 +465,6 @@ offscreen_inset_shadow_stays_clipped_and_favors_its_offset_edge_test :: proc(t: 
 
 @(test)
 coretext_glyph_atlas_composes_background_and_modal_text_in_one_stream_test :: proc(t: ^testing.T) {
-	if !load_objc() {testing.expect(t, false); return}
 	device := MTLCreateSystemDefaultDevice()
 	if device == nil {testing.expect(t, false); return}
 	renderer: Renderer
@@ -605,7 +597,6 @@ coretext_glyph_atlas_composes_background_and_modal_text_in_one_stream_test :: pr
 
 @(test)
 overlapping_max_shadows_keep_peak_coverage_test :: proc(t: ^testing.T) {
-	if !load_objc() {testing.expect(t, false); return}
 	device := MTLCreateSystemDefaultDevice()
 	if device == nil {testing.expect(t, false); return}
 	renderer: Renderer
@@ -683,7 +674,6 @@ overlapping_max_shadows_keep_peak_coverage_test :: proc(t: ^testing.T) {
 
 @(test)
 offscreen_drop_shadow_punches_caster_and_keeps_the_halo_test :: proc(t: ^testing.T) {
-	if !load_objc() {testing.expect(t, false); return}
 	device := MTLCreateSystemDefaultDevice()
 	if device == nil {testing.expect(t, false); return}
 	renderer: Renderer

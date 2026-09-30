@@ -1,6 +1,6 @@
 package macos
 
-import "core:dynlib"
+import "base:intrinsics"
 import "core:math"
 
 Frame_Timer :: struct {
@@ -10,6 +10,7 @@ Frame_Timer :: struct {
 // Foundation reexports the Objective-C runtime (as in Odin's Foundation bindings).
 foreign import frame_timer_objc "system:Foundation.framework"
 foreign frame_timer_objc {
+	objc_msgSend :: proc "c" (self: ^intrinsics.objc_object, op: ^intrinsics.objc_selector, #c_vararg args: ..any) ---
 	objc_getClass    :: proc "c" (name: cstring) -> rawptr ---
 	sel_registerName :: proc "c" (name: cstring) -> rawptr ---
 }
@@ -24,28 +25,18 @@ foreign frame_timer_appkit {
 	NSEventTrackingRunLoopMode: rawptr
 }
 
-frame_timer_send_address: rawptr
-
-frame_timer_load_objc :: proc() -> bool {
-	if frame_timer_send_address != nil {return true}
-	handle, loaded := dynlib.load_library("/usr/lib/libobjc.A.dylib")
-	if !loaded {return false}
-	frame_timer_send_address, loaded = dynlib.symbol_address(handle, "objc_msgSend")
-	return loaded
-}
-
 frame_timer_msg_id :: proc(receiver, selector: rawptr) -> rawptr {
-	send := cast(proc "c" (_: rawptr, _: rawptr) -> rawptr)frame_timer_send_address
+	send := cast(proc "c" (_: rawptr, _: rawptr) -> rawptr)objc_msgSend
 	return send(receiver, selector)
 }
 
 frame_timer_msg_void :: proc(receiver, selector: rawptr) {
-	send := cast(proc "c" (_: rawptr, _: rawptr))frame_timer_send_address
+	send := cast(proc "c" (_: rawptr, _: rawptr))objc_msgSend
 	send(receiver, selector)
 }
 
 frame_timer_msg_void_id_id :: proc(receiver, selector, first, second: rawptr) {
-	send := cast(proc "c" (_: rawptr, _: rawptr, _: rawptr, _: rawptr))frame_timer_send_address
+	send := cast(proc "c" (_: rawptr, _: rawptr, _: rawptr, _: rawptr))objc_msgSend
 	send(receiver, selector, first, second)
 }
 
@@ -62,7 +53,6 @@ frame_timer_start :: proc(
 	   math.is_inf(frames_per_second) {
 		return false
 	}
-	if !frame_timer_load_objc() {return false}
 
 	callback := sel_registerName(callback_name)
 	if callback == nil {return false}
@@ -74,7 +64,7 @@ frame_timer_start :: proc(
 		_: rawptr,
 		_: rawptr,
 		_: bool,
-	) -> rawptr)frame_timer_send_address
+	) -> rawptr)objc_msgSend
 	native := timer_send(
 		objc_getClass("NSTimer"),
 		sel_registerName("timerWithTimeInterval:target:selector:userInfo:repeats:"),
@@ -114,9 +104,7 @@ frame_timer_start :: proc(
 
 frame_timer_stop :: proc(timer: ^Frame_Timer) {
 	if timer == nil || timer.native == nil {return}
-	if frame_timer_load_objc() {
-		frame_timer_msg_void(timer.native, sel_registerName("invalidate"))
-		frame_timer_msg_void(timer.native, sel_registerName("release"))
-	}
+	frame_timer_msg_void(timer.native, sel_registerName("invalidate"))
+	frame_timer_msg_void(timer.native, sel_registerName("release"))
 	timer.native = nil
 }

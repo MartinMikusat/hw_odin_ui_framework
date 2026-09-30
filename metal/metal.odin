@@ -1,7 +1,7 @@
 package metal
 
 import "core:mem"
-import "core:dynlib"
+import "base:intrinsics"
 import "core:strings"
 import coretext "ui_framework:coretext"
 import draw "ui_framework:draw"
@@ -14,6 +14,7 @@ Selector :: rawptr
 // Foundation reexports the Objective-C runtime (as in Odin's Foundation bindings).
 foreign import objc "system:Foundation.framework"
 foreign objc {
+	objc_msgSend :: proc "c" (self: ^intrinsics.objc_object, op: ^intrinsics.objc_selector, #c_vararg args: ..any) ---
 	objc_getClass    :: proc "c" (name: cstring) -> Object ---
 	sel_registerName :: proc "c" (name: cstring) -> Selector ---
 }
@@ -89,98 +90,88 @@ Renderer :: struct {
 	atlas_handles:    map[u64]draw.Texture_Handle, // Glyph atlas native -> persistent handle.
 }
 
-send_address: rawptr
-
-load_objc :: proc() -> bool {
-	if send_address != nil {return true}
-	handle, loaded := dynlib.load_library("/usr/lib/libobjc.A.dylib")
-	if !loaded {return false}
-	send_address, loaded = dynlib.symbol_address(handle, "objc_msgSend")
-	return loaded
-}
-
 msg_id :: proc(receiver: Object, selector: Selector) -> Object {
-	p := cast(proc "c" (_: Object, _: Selector) -> Object)send_address
+	p := cast(proc "c" (_: Object, _: Selector) -> Object)objc_msgSend
 	return p(receiver, selector)
 }
 
 msg_void :: proc(receiver: Object, selector: Selector) {
-	p := cast(proc "c" (_: Object, _: Selector))send_address
+	p := cast(proc "c" (_: Object, _: Selector))objc_msgSend
 	p(receiver, selector)
 }
 
 msg_void_id :: proc(receiver: Object, selector: Selector, value: Object) {
-	p := cast(proc "c" (_: Object, _: Selector, _: Object))send_address
+	p := cast(proc "c" (_: Object, _: Selector, _: Object))objc_msgSend
 	p(receiver, selector, value)
 }
 
 msg_void_id_u :: proc(receiver: Object, selector: Selector, value: Object, index: uint) {
-	p := cast(proc "c" (_: Object, _: Selector, _: Object, _: uint))send_address
+	p := cast(proc "c" (_: Object, _: Selector, _: Object, _: uint))objc_msgSend
 	p(receiver, selector, value, index)
 }
 
 msg_void_bool :: proc(receiver: Object, selector: Selector, value: bool) {
-	p := cast(proc "c" (_: Object, _: Selector, _: bool))send_address
+	p := cast(proc "c" (_: Object, _: Selector, _: bool))objc_msgSend
 	p(receiver, selector, value)
 }
 
 msg_void_u :: proc(receiver: Object, selector: Selector, value: uint) {
-	p := cast(proc "c" (_: Object, _: Selector, _: uint))send_address
+	p := cast(proc "c" (_: Object, _: Selector, _: uint))objc_msgSend
 	p(receiver, selector, value)
 }
 
 msg_id_id :: proc(receiver: Object, selector: Selector, value: Object) -> Object {
-	p := cast(proc "c" (_: Object, _: Selector, _: Object) -> Object)send_address
+	p := cast(proc "c" (_: Object, _: Selector, _: Object) -> Object)objc_msgSend
 	return p(receiver, selector, value)
 }
 
 msg_id_id_error :: proc(receiver: Object, selector: Selector, value: Object, error: ^Object) -> Object {
-	p := cast(proc "c" (_: Object, _: Selector, _: Object, _: ^Object) -> Object)send_address
+	p := cast(proc "c" (_: Object, _: Selector, _: Object, _: ^Object) -> Object)objc_msgSend
 	return p(receiver, selector, value, error)
 }
 
 msg_id_descriptor_error :: proc(receiver: Object, selector: Selector, descriptor: Object, error: ^Object) -> Object {
-	p := cast(proc "c" (_: Object, _: Selector, _: Object, _: ^Object) -> Object)send_address
+	p := cast(proc "c" (_: Object, _: Selector, _: Object, _: ^Object) -> Object)objc_msgSend
 	return p(receiver, selector, descriptor, error)
 }
 
 msg_id_u :: proc(receiver: Object, selector: Selector, value: uint) -> Object {
-	p := cast(proc "c" (_: Object, _: Selector, _: uint) -> Object)send_address
+	p := cast(proc "c" (_: Object, _: Selector, _: uint) -> Object)objc_msgSend
 	return p(receiver, selector, value)
 }
 
 msg_id_u_u_u_bool :: proc(receiver: Object, selector: Selector, format, width, height: uint, mipmapped: bool) -> Object {
-	p := cast(proc "c" (_: Object, _: Selector, _: uint, _: uint, _: uint, _: bool) -> Object)send_address
+	p := cast(proc "c" (_: Object, _: Selector, _: uint, _: uint, _: uint, _: bool) -> Object)objc_msgSend
 	return p(receiver, selector, format, width, height, mipmapped)
 }
 
 msg_id_ptr_u_u :: proc(receiver: Object, selector: Selector, bytes: rawptr, length, options: uint) -> Object {
-	p := cast(proc "c" (_: Object, _: Selector, _: rawptr, _: uint, _: uint) -> Object)send_address
+	p := cast(proc "c" (_: Object, _: Selector, _: rawptr, _: uint, _: uint) -> Object)objc_msgSend
 	return p(receiver, selector, bytes, length, options)
 }
 
 msg_void_ptr_u_u :: proc(receiver: Object, selector: Selector, bytes: rawptr, length, index: uint) {
-	p := cast(proc "c" (_: Object, _: Selector, _: rawptr, _: uint, _: uint))send_address
+	p := cast(proc "c" (_: Object, _: Selector, _: rawptr, _: uint, _: uint))objc_msgSend
 	p(receiver, selector, bytes, length, index)
 }
 
 msg_void_id_u_u :: proc(receiver: Object, selector: Selector, value: Object, offset, index: uint) {
-	p := cast(proc "c" (_: Object, _: Selector, _: Object, _: uint, _: uint))send_address
+	p := cast(proc "c" (_: Object, _: Selector, _: Object, _: uint, _: uint))objc_msgSend
 	p(receiver, selector, value, offset, index)
 }
 
 msg_void_region_u_ptr_u :: proc(receiver: Object, selector: Selector, region: MTL_Region, level: uint, bytes: rawptr, bytes_per_row: uint) {
-	p := cast(proc "c" (_: Object, _: Selector, _: MTL_Region, _: uint, _: rawptr, _: uint))send_address
+	p := cast(proc "c" (_: Object, _: Selector, _: MTL_Region, _: uint, _: rawptr, _: uint))objc_msgSend
 	p(receiver, selector, region, level, bytes, bytes_per_row)
 }
 
 msg_void_scissor :: proc(receiver: Object, selector: Selector, rect: MTL_Scissor_Rect) {
-	p := cast(proc "c" (_: Object, _: Selector, _: MTL_Scissor_Rect))send_address
+	p := cast(proc "c" (_: Object, _: Selector, _: MTL_Scissor_Rect))objc_msgSend
 	p(receiver, selector, rect)
 }
 
 msg_void_draw_instanced :: proc(receiver: Object, selector: Selector, primitive, vertex_start, vertex_count, instance_count: uint) {
-	p := cast(proc "c" (_: Object, _: Selector, _: uint, _: uint, _: uint, _: uint))send_address
+	p := cast(proc "c" (_: Object, _: Selector, _: uint, _: uint, _: uint, _: uint))objc_msgSend
 	p(receiver, selector, primitive, vertex_start, vertex_count, instance_count)
 }
 
@@ -192,7 +183,7 @@ MTL_Clear_Color :: struct {
 }
 
 msg_void_clear_color :: proc(receiver: Object, selector: Selector, color: MTL_Clear_Color) {
-	p := cast(proc "c" (_: Object, _: Selector, _: MTL_Clear_Color))send_address
+	p := cast(proc "c" (_: Object, _: Selector, _: MTL_Clear_Color))objc_msgSend
 	p(receiver, selector, color)
 }
 
@@ -408,7 +399,7 @@ renderer_init :: proc(
 	metallib_data: []u8 = nil,
 ) -> bool {
 	assert(renderer != nil)
-	if device == nil || !load_objc() {return false}
+	if device == nil {return false}
 	renderer^ = Renderer{allocator = allocator, device = device, pixel_format = pixel_format}
 	renderer.textures = make([dynamic]Object, allocator)
 	renderer.persistent = make([dynamic]Object, allocator)

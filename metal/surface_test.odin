@@ -13,7 +13,6 @@ SURFACE_TEST_POINTS :: [2]f32{32, 16}
 SURFACE_TEST_SCALE :: f32(2)
 
 surface_test_init :: proc(t: ^testing.T, value: ^Surface_Test) -> bool {
-	if !testing.expect(t, load_objc()) {return false}
 	device := MTLCreateSystemDefaultDevice()
 	if !testing.expect(t, device != nil, "Metal device required") {return false}
 	if !test_renderer_init(t, &value.renderer, device) {return false}

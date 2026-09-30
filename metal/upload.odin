@@ -46,12 +46,12 @@ upload_align :: proc(size: uint) -> uint {
 }
 
 msg_u_0 :: proc(receiver: Object, selector: Selector) -> uint {
-	p := cast(proc "c" (_: Object, _: Selector) -> uint)send_address
+	p := cast(proc "c" (_: Object, _: Selector) -> uint)objc_msgSend
 	return p(receiver, selector)
 }
 
 msg_id_u_u :: proc(receiver: Object, selector: Selector, first, second: uint) -> Object {
-	p := cast(proc "c" (_: Object, _: Selector, _: uint, _: uint) -> Object)send_address
+	p := cast(proc "c" (_: Object, _: Selector, _: uint, _: uint) -> Object)objc_msgSend
 	return p(receiver, selector, first, second)
 }
 

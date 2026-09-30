@@ -1,5 +1,26 @@
 {
   "collections": [
-    {"name": "ui_framework", "path": "."}
+    {
+      "name": "ui_framework",
+      "path": "."
+    }
+  ],
+  "profile": "default",
+  "profiles": [
+    {
+      "name": "default",
+      "checker_path": [
+        "core",
+        "draw",
+        "glyphatlas",
+        "widgets",
+        "hal_wayland",
+        "renderdata",
+        "diagnostics",
+        "coretext",
+        "metal",
+        "macos"
+      ]
+    }
   ]
 }

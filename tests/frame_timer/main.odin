@@ -1,12 +1,13 @@
 package main
 
-import "core:dynlib"
+import "base:intrinsics"
 import "core:fmt"
 import "core:os"
 import macos "ui_framework:macos"
 
-foreign import objc "system:objc"
+foreign import objc "system:Foundation.framework"
 foreign objc {
+	objc_msgSend :: proc "c" (self: ^intrinsics.objc_object, op: ^intrinsics.objc_selector, #c_vararg args: ..any) ---
 	objc_getClass          :: proc "c" (name: cstring) -> rawptr ---
 	sel_registerName       :: proc "c" (name: cstring) -> rawptr ---
 	objc_allocateClassPair :: proc "c" (superclass: rawptr, name: cstring, extra_bytes: uint) -> rawptr ---
@@ -14,21 +15,20 @@ foreign objc {
 	class_addMethod        :: proc "c" (class, selector, implementation: rawptr, types: cstring) -> bool ---
 }
 
-send_address: rawptr
 tick_count: int
 
 msg_id :: proc(receiver, selector: rawptr) -> rawptr {
-	send := cast(proc "c" (_: rawptr, _: rawptr) -> rawptr)send_address
+	send := cast(proc "c" (_: rawptr, _: rawptr) -> rawptr)objc_msgSend
 	return send(receiver, selector)
 }
 
 msg_void :: proc(receiver, selector: rawptr) {
-	send := cast(proc "c" (_: rawptr, _: rawptr))send_address
+	send := cast(proc "c" (_: rawptr, _: rawptr))objc_msgSend
 	send(receiver, selector)
 }
 
 nsstring :: proc(value: cstring) -> rawptr {
-	send := cast(proc "c" (_: rawptr, _: rawptr, _: cstring) -> rawptr)send_address
+	send := cast(proc "c" (_: rawptr, _: rawptr, _: cstring) -> rawptr)objc_msgSend
 	return send(objc_getClass("NSString"), sel_registerName("stringWithUTF8String:"), value)
 }
 
@@ -56,7 +56,7 @@ test_target :: proc() -> rawptr {
 }
 
 run_mode :: proc(mode: cstring, seconds: f64) {
-	date_send := cast(proc "c" (_: rawptr, _: rawptr, _: f64) -> rawptr)send_address
+	date_send := cast(proc "c" (_: rawptr, _: rawptr, _: f64) -> rawptr)objc_msgSend
 	deadline := date_send(
 		objc_getClass("NSDate"),
 		sel_registerName("dateWithTimeIntervalSinceNow:"),
@@ -67,7 +67,7 @@ run_mode :: proc(mode: cstring, seconds: f64) {
 		_: rawptr,
 		_: rawptr,
 		_: rawptr,
-	) -> bool)send_address
+	) -> bool)objc_msgSend
 	_ = run_send(
 		msg_id(objc_getClass("NSRunLoop"), sel_registerName("mainRunLoop")),
 		sel_registerName("runMode:beforeDate:"),
@@ -82,11 +82,6 @@ fail :: proc(message: string) {
 }
 
 main :: proc() {
-	handle, loaded := dynlib.load_library("/usr/lib/libobjc.A.dylib")
-	if !loaded {fail("Could not load the Objective-C runtime")}
-	send_address, loaded = dynlib.symbol_address(handle, "objc_msgSend")
-	if !loaded {fail("Could not load objc_msgSend")}
-
 	pool := msg_id(objc_getClass("NSAutoreleasePool"), sel_registerName("new"))
 	defer msg_void(pool, sel_registerName("drain"))
 	target := test_target()

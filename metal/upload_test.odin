@@ -8,7 +8,6 @@ Upload_Test :: struct {
 }
 
 upload_test_init :: proc(t: ^testing.T, value: ^Upload_Test) -> bool {
-	if !testing.expect(t, load_objc()) {return false}
 	device := MTLCreateSystemDefaultDevice()
 	if !testing.expect(t, device != nil, "Metal device required") {return false}
 	// The ring needs only the device; no pipelines are created.

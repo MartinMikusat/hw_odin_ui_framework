@@ -27,22 +27,22 @@ display_link_rate_range :: proc(
 }
 
 display_link_msg_id_id_sel :: proc(receiver, selector, target, callback: rawptr) -> rawptr {
-	send := cast(proc "c" (_: rawptr, _: rawptr, _: rawptr, _: rawptr) -> rawptr)frame_timer_send_address
+	send := cast(proc "c" (_: rawptr, _: rawptr, _: rawptr, _: rawptr) -> rawptr)objc_msgSend
 	return send(receiver, selector, target, callback)
 }
 
 display_link_msg_void_bool :: proc(receiver, selector: rawptr, value: bool) {
-	send := cast(proc "c" (_: rawptr, _: rawptr, _: bool))frame_timer_send_address
+	send := cast(proc "c" (_: rawptr, _: rawptr, _: bool))objc_msgSend
 	send(receiver, selector, value)
 }
 
 display_link_msg_void_range :: proc(receiver, selector: rawptr, value: Frame_Rate_Range) {
-	send := cast(proc "c" (_: rawptr, _: rawptr, _: Frame_Rate_Range))frame_timer_send_address
+	send := cast(proc "c" (_: rawptr, _: rawptr, _: Frame_Rate_Range))objc_msgSend
 	send(receiver, selector, value)
 }
 
 display_link_msg_f64 :: proc(receiver, selector: rawptr) -> f64 {
-	send := cast(proc "c" (_: rawptr, _: rawptr) -> f64)frame_timer_send_address
+	send := cast(proc "c" (_: rawptr, _: rawptr) -> f64)objc_msgSend
 	return send(receiver, selector)
 }
 
@@ -64,7 +64,6 @@ display_link_start :: proc(
 	); !valid {
 		return false
 	}
-	if !frame_timer_load_objc() {return false}
 
 	callback := sel_registerName(callback_name)
 	if callback == nil {return false}
@@ -101,32 +100,28 @@ display_link_start :: proc(
 
 display_link_set_paused :: proc(link: ^Display_Link, paused: bool) {
 	if link == nil || link.native == nil || link.paused == paused {return}
-	if frame_timer_load_objc() {
-		display_link_msg_void_bool(link.native, sel_registerName("setPaused:"), paused)
-		link.paused = paused
-	}
+	display_link_msg_void_bool(link.native, sel_registerName("setPaused:"), paused)
+	link.paused = paused
 }
 
 display_link_timestamp :: proc(link: ^Display_Link) -> f64 {
-	if link == nil || link.native == nil || !frame_timer_load_objc() {return 0}
+	if link == nil || link.native == nil {return 0}
 	return display_link_msg_f64(link.native, sel_registerName("timestamp"))
 }
 
 display_link_target_timestamp :: proc(link: ^Display_Link) -> f64 {
-	if link == nil || link.native == nil || !frame_timer_load_objc() {return 0}
+	if link == nil || link.native == nil {return 0}
 	return display_link_msg_f64(link.native, sel_registerName("targetTimestamp"))
 }
 
 display_link_duration :: proc(link: ^Display_Link) -> f64 {
-	if link == nil || link.native == nil || !frame_timer_load_objc() {return 0}
+	if link == nil || link.native == nil {return 0}
 	return display_link_msg_f64(link.native, sel_registerName("duration"))
 }
 
 display_link_stop :: proc(link: ^Display_Link) {
 	if link == nil || link.native == nil {return}
-	if frame_timer_load_objc() {
-		frame_timer_msg_void(link.native, sel_registerName("invalidate"))
-		frame_timer_msg_void(link.native, sel_registerName("release"))
-	}
+	frame_timer_msg_void(link.native, sel_registerName("invalidate"))
+	frame_timer_msg_void(link.native, sel_registerName("release"))
 	link^ = {}
 }

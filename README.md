@@ -4,14 +4,6 @@ A reusable immediate-mode interface framework for Odin applications. It builds
 a keyed box tree, publishes one control registry, and emits one ordered draw
 stream for a Metal backend.
 
-## AI-assisted development disclosure
-
-Models used:
-
-- **gpt-5.6-sol**
-- **Cursor Grok 4.5**
-- **Cursor Grok 4.6**
-
 The framework keeps application actions and durable product state in the
 application. It owns frame layout, transient interaction state, drawing order,
 text shaping caches, Metal batching, and macOS interface adapters.
@@ -19,47 +11,18 @@ text shaping caches, Metal batching, and macOS interface adapters.
 The implementation uses ideas observed in RADDBG's keyed immediate-mode UI and
 ordered draw buckets. It does not copy RADDBG source code.
 
-## Packages
+## Native ownership
 
-- `core` builds and lays out keyed boxes. It publishes actions and controls.
-- `widgets` composes shared labels, buttons, panes, scroll areas, and virtual lists.
-- `hal_wayland` defines the canonical Hal Wayland light/dark palette, semantic
-  accents, typography, application chrome geometry, responsive action-bar
-  layout, and square control styles.
-- `draw` records ordered rectangles, analytic inset shadows, drop-shadow
-  quads that punch a dest-local caster hole, vertical Y-band
-  rings, three-stop Y-ramp borders, circular, squircle, and fuller pill-
-  squircle corners, vector paths, glyphs, images, and external textures. Its
-  path API
-  delegates curve flattening and stroke expansion to the Odin-native
-  `vendor:nanovg` package in the active Odin toolchain.
-- `diagnostics` captures stable control snapshots, ordered render traces, and
-  fixed-capacity CPU/GPU performance histories without allocating per frame.
-- `coretext` shapes text and supplies glyphs to the draw stream. Its glyph
-  atlas bakes each glyph's bounding-box phase and caches four horizontal
-  subpixel phases, and baselines snap to the device pixel grid, so text stays
-  crisp at fractional positions instead of resampling the glyph masks.
-- `glyphatlas` shares texture callbacks, shelf packing, dirty rectangles and
-  subpixel placement between text backends.
-- `directwrite` supplies Windows layout, glyph extraction and atlas emission.
-  Run `./test-windows.ps1` on Windows for its headless native checks. Cross checks
-  require the Windows STB archives in the active Odin toolchain's `vendor/stb/lib`.
-- `metal` encodes the draw stream into Metal. `encode` writes into a caller-owned
-  encoder created from the `command_buffer` it receives. `encode_to_drawable` owns
-  the pass list so `Combine.Max` batches can max-blend offscreen and then
-  over-composite onto the canvas. Draw data goes straight into a persistent ring
-  of shared buffers (`metal/upload.odin`). A slot belongs to one command buffer
-  and is reused only after that command buffer completes, so steady-state frames
-  allocate nothing. Commit every command buffer passed to an encode, or discard it
-  without committing it later. `upload_stats` reports slots, allocations, waits,
-  and reclaims.
-- `macos` adapts AppKit pointer and Accessibility events to published controls.
+`metal.encode` receives a caller-owned encoder and its command buffer.
+`encode_to_drawable` owns the passes needed for max-blend offscreen composition.
+Draw data uses shared upload slots; a slot is reused only after its command buffer
+completes. Commit every encoded command buffer, or discard it without committing
+it later. `upload_stats` reports allocations, waits and reclaims.
 
 `macos.Display_Link` wraps the macOS 14 `NSView` display-link API. It follows
 the view between displays, runs in normal and event-tracking run-loop modes,
 starts paused, and accepts a best-effort 30–120 Hz frame-rate range with 120 Hz
-preferred. The older `macos.Frame_Timer` remains available for existing hosts;
-no application is migrated implicitly. The application owns either callback
+preferred. `macos.Frame_Timer` supplies timer-driven scheduling. The application owns either callback
 target and must stop the clock before it releases that target.
 
 Applications add this repository as an Odin collection:
@@ -135,7 +98,7 @@ Each box emits its fill, then any `Drop_Shadow` children, then its face and
 non-shadow descendants. Ancestor backgrounds therefore cannot cover a child's
 drop shadow.
 
-Each logical UI surface owns base, popup, tooltip, and legacy modal strata. The
+Each logical UI surface owns base, popup, tooltip, and modal strata. The
 framework renders the base surface first, then each modal surface in stack
 order, and emits the debug stratum once above the complete stack. A modal root
 starts a surface, records its parent surface, and attaches its layout root to
@@ -201,8 +164,7 @@ Textures that live across frames use persistent handles
 (`register_persistent_texture`), which stay valid through `begin_texture_frame`.
 Surfaces and glyph atlas pages register this way, so a warm frame performs no
 texture registration. `register_texture` remains for textures used within one
-frame. `snapshot_texture_natives` and `rebind_texture_natives` predate persistent
-handles and are only needed for retained buckets holding frame handles.
+frame. `snapshot_texture_natives` and `rebind_texture_natives` are needed for retained buckets holding frame handles.
 
 CoreText returns an opaque prepared-run handle. The box stores that handle and
 uses its metrics for alignment. Glyph emission consumes the same handle, so the
