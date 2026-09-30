@@ -7,7 +7,6 @@ import dx "vendor:directx/d3d11"
 import win "core:sys/windows"
 
 Stencil_Mode :: enum {Disabled,Non_Zero,Even_Odd,Equal,Not_Equal,Stroke,Clear}
-NOT_IMPLEMENTED :: win.HRESULT(-2147467263)
 
 renderer_init_encoding :: proc(renderer:^Renderer)->win.HRESULT {
     for mode in Stencil_Mode {
@@ -33,8 +32,8 @@ renderer_init_encoding :: proc(renderer:^Renderer)->win.HRESULT {
 }
 
 // Targets belong to this device and are borrowed for this call. Supply a stencil
-// view for compound fills and strokes. This entry point encodes Over batches.
-// Max groups require offscreen composition. A failed frame must not be presented.
+// view for compound fills and strokes. Max composition uses RGBA8 or BGRA8
+// targets. A failed frame must not be presented.
 encode :: proc(renderer:^Renderer,target:^dx.IRenderTargetView,stencil:^dx.IDepthStencilView,list:^draw.List,viewport_points:[2]f32,scale:=f32(1),clear:draw.Color={0,0,0,1})->win.HRESULT {
     assert(renderer!=nil && renderer.device!=nil && renderer.immediate!=nil)
     if renderer.atlas_error<0 {return renderer.atlas_error}
@@ -43,9 +42,17 @@ encode :: proc(renderer:^Renderer,target:^dx.IRenderTargetView,stencil:^dx.IDept
         if (math.is_nan(side) || math.is_inf(side)) || side<=0 || side*scale>TEXTURE_SIDE_MAX {return INVALID_ARGUMENT}
     }
     if data.list_requires_stencil(list) && stencil==nil {return INVALID_ARGUMENT}
+    needs_max:=false
     for &batch in list.batches {
-        if batch.key.combine==.Max {return NOT_IMPLEMENTED}
+        if batch.key.combine==.Max {
+            if batch.kind!=.Quad {return INVALID_ARGUMENT}
+            needs_max=true
+        }
         if batch.kind==.Quad && batch.key.texture!=0 && texture_get(renderer,batch.key.texture)==nil {return INVALID_ARGUMENT}
+    }
+    if needs_max {
+        result:=max_target_ensure(renderer,target,u32(max(f32(1),viewport_points[0]*scale)),u32(max(f32(1),viewport_points[1]*scale)))
+        if result<0 {return result}
     }
     ranges,range_error:=make([]data.Batch_Range,len(list.batches))
     if range_error!=nil {return OUT_OF_MEMORY}
@@ -68,12 +75,28 @@ encode :: proc(renderer:^Renderer,target:^dx.IRenderTargetView,stencil:^dx.IDept
     immediate->GSSetShader(nil,nil,0)
     immediate->HSSetShader(nil,nil,0)
     immediate->DSSetShader(nil,nil,0)
+    in_max:=false
     for &batch,index in list.batches {
+        if batch.key.combine==.Max && !in_max {
+            max_target_bind(renderer)
+            in_max=true
+        } else if batch.key.combine!=.Max && in_max {
+            immediate->OMSetRenderTargets(1,raw_data(targets[:]),stencil)
+            max_target_composite(renderer,viewport_points,scale)
+            in_max=false
+        }
         if !encode_scissor(renderer,batch.key,viewport_points,scale) {continue}
         switch batch.kind {
-        case .Quad: encode_quad(renderer,&batch,ranges[index],viewport_points,renderer.over_blend)
+        case .Quad:
+            blend:=renderer.over_blend
+            if in_max {blend=renderer.max_blend}
+            encode_quad(renderer,&batch,ranges[index],viewport_points,blend)
         case .Path: encode_path(renderer,&batch,path_ranges[index],viewport_points)
         }
+    }
+    if in_max {
+        immediate->OMSetRenderTargets(1,raw_data(targets[:]),stencil)
+        max_target_composite(renderer,viewport_points,scale)
     }
     return renderer.device->GetDeviceRemovedReason()
 }
@@ -89,7 +112,15 @@ encode_scissor :: proc(renderer:^Renderer,key:draw.Batch_Key,viewport:[2]f32,sca
 encode_quad :: proc(renderer:^Renderer,batch:^draw.Batch,range:data.Batch_Range,viewport:[2]f32,blend:^dx.IBlendState) {
     if range.count==0 {return}
     assert(renderer.quads.native!=nil)
-    uniforms:=data.Batch_Uniforms{viewport=viewport,opacity=batch.key.opacity,transform={batch.key.transform.m00,batch.key.transform.m01,batch.key.transform.m10,batch.key.transform.m11},translation={batch.key.transform.tx,batch.key.transform.ty}}
+    handle:=batch.key.texture
+    if handle==0 {handle=renderer.white_texture}
+    texture:=texture_get(renderer,handle)
+    assert(texture!=nil)
+    encode_quad_bind(renderer,batch.key,renderer.quads.native,u32(range.start)*size_of(data.Quad_Instance),u32(range.count),texture.view,viewport,blend)
+}
+
+encode_quad_bind :: proc(renderer:^Renderer,key:draw.Batch_Key,vertex_buffer:^dx.IBuffer,offset:u32,count:u32,view:^dx.IShaderResourceView,viewport:[2]f32,blend:^dx.IBlendState) {
+    uniforms:=data.Batch_Uniforms{viewport=viewport,opacity=key.opacity,transform={key.transform.m00,key.transform.m01,key.transform.m10,key.transform.m11},translation={key.transform.tx,key.transform.ty}}
     immediate:=renderer.immediate
     immediate->UpdateSubresource(renderer.quad_uniforms,0,nil,&uniforms,0,0)
     constants:=[1]^dx.IBuffer{renderer.quad_uniforms}
@@ -97,23 +128,19 @@ encode_quad :: proc(renderer:^Renderer,batch:^draw.Batch,range:data.Batch_Range,
     immediate->VSSetShader(renderer.quad_vertex,nil,0)
     immediate->PSSetShader(renderer.quad_fragment,nil,0)
     immediate->IASetInputLayout(renderer.quad_layout)
-    buffer:=[1]^dx.IBuffer{renderer.quads.native}
+    buffer:=[1]^dx.IBuffer{vertex_buffer}
     stride:=u32(size_of(data.Quad_Instance))
-    offset:=u32(range.start)*stride
-    immediate->IASetVertexBuffers(0,1,raw_data(buffer[:]),&stride,&offset)
-    handle:=batch.key.texture
-    if handle==0 {handle=renderer.white_texture}
-    texture:=texture_get(renderer,handle)
-    assert(texture!=nil)
-    views:=[1]^dx.IShaderResourceView{texture.view}
+    vertex_offset:=offset
+    immediate->IASetVertexBuffers(0,1,raw_data(buffer[:]),&stride,&vertex_offset)
+    views:=[1]^dx.IShaderResourceView{view}
     immediate->PSSetShaderResources(0,1,raw_data(views[:]))
     sampler:=renderer.linear_sampler
-    if batch.key.sampler==.Nearest {sampler=renderer.nearest_sampler}
+    if key.sampler==.Nearest {sampler=renderer.nearest_sampler}
     samplers:=[1]^dx.ISamplerState{sampler}
     immediate->PSSetSamplers(0,1,raw_data(samplers[:]))
     immediate->OMSetDepthStencilState(renderer.stencil[.Disabled],0)
     immediate->OMSetBlendState(blend,nil,0xffffffff)
-    immediate->DrawInstanced(6,u32(range.count),0,0)
+    immediate->DrawInstanced(6,count,0,0)
 }
 
 encode_path :: proc(renderer:^Renderer,batch:^draw.Batch,ranges:data.Path_Batch_Range,viewport:[2]f32) {

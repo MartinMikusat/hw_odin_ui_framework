@@ -28,6 +28,8 @@ Renderer :: struct {
     atlas_error:win.HRESULT,
     stencil:[Stencil_Mode]^dx.IDepthStencilState,
     quad_uniforms,path_uniforms:^dx.IBuffer,
+    composite_quad:^dx.IBuffer,
+    max_target:Max_Target,
 }
 
 QUAD_INPUT :: [10]dx.INPUT_ELEMENT_DESC{
@@ -73,6 +75,9 @@ renderer_init :: proc(renderer:^Renderer,shaders:Shader_Bytes,software:=false,de
     result=renderer_init_states(&pending)
     if result<0 {return result}
     result=renderer_init_encoding(&pending)
+    if result<0 {return result}
+    composite:=dx.BUFFER_DESC{ByteWidth=size_of(data.Quad_Instance),Usage=.DEFAULT,BindFlags={.VERTEX_BUFFER}}
+    result=pending.device->CreateBuffer(&composite,nil,&pending.composite_quad)
     if result<0 {return result}
     pending.textures=make([dynamic]Texture,allocator)
     pending.white_texture,result=texture_create(&pending,.Color,1,1)
@@ -138,6 +143,8 @@ renderer_destroy :: proc(renderer:^Renderer) {
     release(renderer.paths.native)
     release(renderer.quad_uniforms)
     release(renderer.path_uniforms)
+    release(renderer.composite_quad)
+    max_target_destroy(&renderer.max_target)
     for state in renderer.stencil {release(state)}
     for texture in renderer.textures {release(texture.view);release(texture.native)}
     delete(renderer.textures)

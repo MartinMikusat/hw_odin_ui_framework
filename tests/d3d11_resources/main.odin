@@ -270,7 +270,48 @@ verify_encoding :: proc(state:^renderer.Renderer) {
         assert(renderer.encode(state,color,stencil,&list,{96,64})>=0)
         verify_encoded_pixels(state,target)
     }
+    verify_max_composition(state,target,color,stencil)
+    saved:=state.max_target.native
+    assert(renderer.max_target_ensure(state,color,16384,16384)==renderer.OUT_OF_MEMORY)
+    assert(state.max_target.native==saved)
+    verify_max_composition(state,target,color,stencil)
+    assert(state.max_target.native==saved)
     state.immediate->OMSetRenderTargets(0,nil,nil)
+}
+
+verify_max_composition :: proc(state:^renderer.Renderer,target:^dx.ITexture2D,color:^dx.IRenderTargetView,stencil:^dx.IDepthStencilView) {
+    list:draw.List
+    draw.list_init(&list)
+    defer draw.list_destroy(&list)
+    draw.solid(&list,{8,8,40,40},{0,0,0,0.06},edge_softness=0.5,combine=.Max,mode=.Shadow)
+    draw.solid(&list,{16,16,40,40},{0,0,0,0.06},edge_softness=0.5,combine=.Max,mode=.Shadow)
+    draw.path_begin(&list)
+    draw.path_circle(&list,70,32,5)
+    draw.path_fill(&list,{0,1,0,1})
+    draw.solid(&list,{24,8,8,8},{0,0,0,0.06},edge_softness=0.5,combine=.Max,mode=.Shadow)
+    assert(renderer.encode(state,color,stencil,&list,{96,64},clear={1,1,1,1})>=0)
+    assert(state.max_target.width==96 && state.max_target.height==64)
+    descriptor:dx.TEXTURE2D_DESC
+    target->GetDesc(&descriptor)
+    descriptor.Usage=.STAGING
+    descriptor.BindFlags={}
+    descriptor.CPUAccessFlags={.READ}
+    staging:^dx.ITexture2D
+    assert(state.device->CreateTexture2D(&descriptor,nil,&staging)>=0)
+    defer _=staging->Release()
+    state.immediate->CopyResource(staging,target)
+    mapped:dx.MAPPED_SUBRESOURCE
+    assert(state.immediate->Map(staging,0,.READ,{},&mapped)>=0)
+    defer state.immediate->Unmap(staging,0)
+    bytes:=cast([^]u8)mapped.pData
+    overlap:=43*int(mapped.RowPitch)+20*4
+    separated:=51*int(mapped.RowPitch)+28*4
+    outside:=58*int(mapped.RowPitch)+5*4
+    path:=31*int(mapped.RowPitch)+70*4
+    assert(bytes[overlap]>=238 && bytes[overlap]<=242)
+    assert(bytes[separated]>=223 && bytes[separated]<=229)
+    assert(bytes[outside]==255 && bytes[outside+3]==255)
+    assert(bytes[path]<10 && bytes[path+1]>240 && bytes[path+2]<10)
 }
 
 verify_encoded_pixels :: proc(state:^renderer.Renderer,target:^dx.ITexture2D) {
