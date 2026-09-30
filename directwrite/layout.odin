@@ -14,6 +14,7 @@ OUT_OF_MEMORY :: win.HRESULT(-2147024882)
 
 Context :: struct {
     factory:^Factory,
+    factory2:^Factory2,
     allocator:mem.Allocator,
 }
 
@@ -30,10 +31,10 @@ Line_Range :: struct {byte_start,byte_end,next_byte:int}
 context_init :: proc(value:^Context, allocator:=context.allocator)->win.HRESULT {
     assert(value!=nil && value.factory==nil)
     factory:rawptr
-    result:=DWriteCreateFactory(0,&FACTORY_IID,&factory)
+    result:=DWriteCreateFactory(0,&FACTORY2_IID,&factory)
     if result<0 {return result}
     assert(factory!=nil)
-    value^={cast(^Factory)factory,allocator}
+    value^={factory=cast(^Factory)factory,factory2=cast(^Factory2)factory,allocator=allocator}
     return result
 }
 

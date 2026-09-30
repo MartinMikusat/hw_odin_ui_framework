@@ -66,4 +66,24 @@ verify_layout :: proc() {
     defer delete(oversized)
     bad_size,bad_size_status:=text.layout_create(&state,oversized,"Consolas",12,70,true)
     assert(bad_size_status==text.INVALID_ARGUMENT && bad_size.native==nil)
+    glyph_layout,glyph_layout_status:=text.layout_create(&state,"office café 😀 العربية","Consolas",12,1000,false)
+    assert(glyph_layout_status>=0)
+    glyphs,glyph_status:=text.layout_glyphs(&state,&glyph_layout)
+    assert(glyph_status>=0 && len(glyphs.glyphs)>0 && len(glyphs.fonts)>0)
+    defer text.glyph_buffer_destroy(&glyphs)
+    text.layout_destroy(&glyph_layout)
+    ink,antialias:=false,false
+    for glyph in glyphs.glyphs {
+        mask,mask_status:=text.glyph_mask(&state,glyph,2,1)
+        assert(mask_status>=0)
+        for pixel in mask.pixels {
+            if pixel>0 {ink=true}
+            if pixel>0 && pixel<255 {antialias=true}
+        }
+        text.glyph_mask_destroy(&mask)
+        assert(mask.pixels==nil)
+    }
+    assert(ink && antialias)
+    bad_scale,bad_scale_status:=text.glyph_mask(&state,glyphs.glyphs[0],0,0)
+    assert(bad_scale_status==text.INVALID_ARGUMENT && bad_scale.pixels==nil)
 }
