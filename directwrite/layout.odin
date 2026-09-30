@@ -156,6 +156,16 @@ document_layout_set_width :: proc(value:^Layout,width:f32)->win.HRESULT {
     return value.native->GetMetrics(&value.metrics)
 }
 
+document_layout_set_line_height :: proc(value:^Layout,height,baseline:f32)->win.HRESULT {
+    assert(value!=nil && value.native!=nil && value.document_owner!=nil && value.document_owner.factory!=nil)
+    if math.is_nan(height) || math.is_inf(height) || height<=0 || height>LAYOUT_EXTENT_MAX ||
+       math.is_nan(baseline) || math.is_inf(baseline) || baseline<0 || baseline>height {return INVALID_ARGUMENT}
+    status:=value.native.format.SetLineSpacing(cast(^Text_Format)value.native,1,height,baseline)
+    if status<0 {return status}
+    value.metrics={}
+    return value.native->GetMetrics(&value.metrics)
+}
+
 line_ranges :: proc(value:^Layout, allocator:=context.allocator,utf16_starts:^[]u32=nil)->([]Line_Range,win.HRESULT) {
     assert(value!=nil && value.native!=nil)
     count:=value.metrics.line_count
