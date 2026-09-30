@@ -59,6 +59,9 @@ verify_backend :: proc() {
     assert(same==prepared && state.run_bytes==bytes && len(state.runs)==1)
     unconstrained,unconstrained_status:=text.prepare_run(&state,ui.Font_Handle(1),"zero width",12,0,0,true)
     assert(unconstrained_status>=0 && unconstrained.metrics.width>0)
+    tabs,tab_status:=text.prepare_run(&state,ui.Font_Handle(1),"a\tb",12,0,0,false,42)
+    wider,wider_status:=text.prepare_run(&state,ui.Font_Handle(1),"a\tb",12,0,0,false,49)
+    assert(tab_status>=0 && wider_status>=0 && tabs.run!=wider.run && tabs.metrics.width<wider.metrics.width)
     list:draw.List
     draw.list_init(&list)
     defer draw.list_destroy(&list)
@@ -66,7 +69,7 @@ verify_backend :: proc() {
     assert(state.text_error>=0 && len(list.batches)>0)
     text.flush(&state)
     assert(fake.uploaded>0)
-    for i in 2..<text.RUN_LIMIT {
+    for i in 4..<text.RUN_LIMIT {
         source:=fmt.tprintf("run %d",i)
         run,status:=text.prepare_run(&state,ui.Font_Handle(1),source,12,0,0,false)
         assert(status>=0 && run.run!=ui.Text_Run_ID(0))
@@ -92,6 +95,12 @@ verify_layout_style :: proc() {
     spaced,spacing_status:=text.layout_create(&state,plain.text,"Consolas",12,1000,false,2)
     assert(spacing_status>=0 && spaced.metrics.width>plain.metrics.width)
     defer text.layout_destroy(&spaced)
+    tabs,tab_status:=text.layout_create(&state,"a\tb\tc","Consolas",12,1000,false,tab_width=42)
+    assert(tab_status>=0)
+    defer text.layout_destroy(&tabs)
+    first,_,first_status:=text.caret_position(&tabs,2)
+    second,_,second_status:=text.caret_position(&tabs,4)
+    assert(first_status>=0 && second_status>=0 && abs(first-42)<0.01 && abs(second-84)<0.01)
     trimmed,trimming_status:=text.layout_create(&state,plain.text,"Consolas",12,40,false,0,true)
     assert(trimming_status>=0)
     defer text.layout_destroy(&trimmed)

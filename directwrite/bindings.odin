@@ -135,7 +135,7 @@ Text_Format_VTable :: struct {
     SetWordWrapping: proc "system" (self:^Text_Format, wrapping:u32)->win.HRESULT,
     SetReadingDirection: rawptr,
     SetFlowDirection: rawptr,
-    SetIncrementalTabStop: rawptr,
+    SetIncrementalTabStop: proc "system" (self:^Text_Format,width:f32)->win.HRESULT,
     SetTrimming: proc "system" (self:^Text_Format,options:^Trimming,sign:^Inline_Object)->win.HRESULT,
     SetLineSpacing: rawptr,
     GetTextAlignment: rawptr,

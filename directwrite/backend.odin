@@ -11,11 +11,26 @@ RUN_BYTES_MAX :: 128*1024*1024
 FONT_LIMIT :: 256
 
 Font_Entry :: struct {handle:ui.Font_Handle,name:string,collection:^Font_Collection}
+
+font_entry :: proc(value:^Context,handle:ui.Font_Handle)->^Font_Entry {
+    for &entry in value.fonts {if entry.handle==handle {return &entry}}
+    return nil
+}
+
+wrap_line_ranges :: proc(value:^Context,font:ui.Font_Handle,text:string,size,tracking,maximum_width:f32,allocator:=context.allocator,tab_width:=f32(0))->([]Line_Range,win.HRESULT) {
+    assert(value!=nil && value.factory!=nil)
+    entry:=font_entry(value,font)
+    if entry==nil {return {},INVALID_ARGUMENT}
+    layout,status:=layout_create(value,text,entry.name,size,maximum_width,true,tracking,false,entry.collection,tab_width)
+    if status<0 {return {},status}
+    defer layout_destroy(&layout)
+    return line_ranges(&layout,allocator)
+}
 Run_Key :: struct {
     font:ui.Font_Handle,
     generation:u64,
     text:string,
-    size,tracking,width:u32,
+    size,tracking,width,tab_width:u32,
     truncate:bool,
 }
 Prepared_Run :: struct {
@@ -79,23 +94,21 @@ oldest_unpinned_run :: proc(value:^Context)->int {
     return result
 }
 
-prepare_run :: proc(value:^Context,font:ui.Font_Handle,text:string,size,tracking,maximum_width:f32,truncate:bool)->(ui.Prepared_Text,win.HRESULT) {
+prepare_run :: proc(value:^Context,font:ui.Font_Handle,text:string,size,tracking,maximum_width:f32,truncate:bool,tab_width:=f32(0))->(ui.Prepared_Text,win.HRESULT) {
     assert(value!=nil && value.factory!=nil && value.atlas.frame>0)
     if len(text)>TEXT_BYTES_MAX {return {},INVALID_ARGUMENT}
-    key:=Run_Key{font,value.font_generation,text,transmute(u32)size,transmute(u32)tracking,transmute(u32)maximum_width,truncate}
+    key:=Run_Key{font,value.font_generation,text,transmute(u32)size,transmute(u32)tracking,transmute(u32)maximum_width,transmute(u32)tab_width,truncate}
     if index,found:=value.run_index[key];found {
         run:=&value.runs[index]
         assert(run.live)
         run.frame=value.atlas.frame
         return {ui.Text_Run_ID(index+1),run.metrics},0
     }
-    family:=""
-    collection:^Font_Collection
-    for entry in value.fonts {if entry.handle==font {family=entry.name;collection=entry.collection;break}}
-    if family=="" {return {},INVALID_ARGUMENT}
+    entry:=font_entry(value,font)
+    if entry==nil {return {},INVALID_ARGUMENT}
     width:=maximum_width
     if width==0 {width=LAYOUT_EXTENT_MAX}
-    layout,status:=layout_create(value,text,family,size,width,false,tracking,truncate && maximum_width>0,collection)
+    layout,status:=layout_create(value,text,entry.name,size,width,false,tracking,truncate && maximum_width>0,entry.collection,tab_width)
     if status<0 {return {},status}
     glyphs,glyph_status:=layout_glyphs(value,&layout)
     if glyph_status<0 {layout_destroy(&layout);return {},glyph_status}
