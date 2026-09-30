@@ -8,6 +8,7 @@ import "core:unicode/utf16"
 import win "core:sys/windows"
 
 TEXT_BYTES_MAX :: 512*1024
+DOCUMENT_BYTES_MAX :: 8*1024*1024
 LAYOUT_EXTENT_MAX :: f32(1e9)
 INVALID_ARGUMENT :: win.HRESULT(-2147024809)
 OUT_OF_MEMORY :: win.HRESULT(-2147024882)
@@ -74,8 +75,14 @@ layout_destroy :: proc(value:^Layout) {
 
 // Layout owns both the native shaped text and its UTF-8 source until destroy.
 layout_create :: proc(value:^Context, text,family:string, size,width:f32, wrap:bool,tracking:=f32(0),truncate:=false,collection:^Font_Collection=nil,tab_width:=f32(0))->(Layout,win.HRESULT) {
+    return layout_create_bounded(value,text,family,size,width,wrap,tracking,truncate,collection,tab_width,TEXT_BYTES_MAX)
+}
+
+@(private)
+layout_create_bounded :: proc(value:^Context,text,family:string,size,width:f32,wrap:bool,tracking:f32,truncate:bool,collection:^Font_Collection,tab_width:f32,byte_limit:int)->(Layout,win.HRESULT) {
+    assert(byte_limit==TEXT_BYTES_MAX || byte_limit==DOCUMENT_BYTES_MAX)
     assert(value!=nil && value.factory!=nil)
-    if len(text)>TEXT_BYTES_MAX || len(family)==0 || len(family)>256 ||
+    if len(text)>byte_limit || len(family)==0 || len(family)>256 ||
        !utf8.valid_string(text) || !utf8.valid_string(family) || strings.contains(family,"\x00") ||
        (math.is_nan(size) || math.is_inf(size)) || size<=0 || size>1024 ||
        (math.is_nan(tracking) || math.is_inf(tracking)) || abs(tracking)>1024 ||

@@ -26,6 +26,13 @@ wrap_line_ranges :: proc(value:^Context,font:ui.Font_Handle,text:string,size,tra
     defer layout_destroy(&layout)
     return line_ranges(&layout,allocator)
 }
+// The document owner destroys this layout before its font context; it is not cached.
+document_layout_create :: proc(value:^Context,font:ui.Font_Handle,text:string,size,tracking,maximum_width:f32,tab_width:=f32(0))->(Layout,win.HRESULT) {
+    assert(value!=nil && value.factory!=nil)
+    entry:=font_entry(value,font)
+    if entry==nil {return {},INVALID_ARGUMENT}
+    return layout_create_bounded(value,text,entry.name,size,maximum_width,true,tracking,false,entry.collection,tab_width,DOCUMENT_BYTES_MAX)
+}
 Run_Key :: struct {
     font:ui.Font_Handle,
     generation:u64,

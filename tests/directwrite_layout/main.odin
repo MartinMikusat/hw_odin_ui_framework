@@ -37,6 +37,7 @@ main :: proc() {
     context.allocator=mem.tracking_allocator(&tracking)
     verify_layout()
     verify_layout_style()
+    verify_document_layout()
     verify_backend()
     verify_atlas_bounds()
     assert(len(tracking.allocation_map)==0 && len(tracking.bad_free_array)==0)
@@ -245,4 +246,28 @@ verify_atlas_bounds :: proc() {
     assert(retry>=0)
     text.context_destroy(&state)
     assert(fake.destroyed==fake.created)
+}
+
+verify_document_layout :: proc() {
+    state:text.Context
+    assert(text.context_init(&state)>=0)
+    defer text.context_destroy(&state)
+    assert(text.register_font(&state,ui.Font_Handle(1),"Consolas")>=0)
+    source:=strings.repeat("Paragraph 😀\n",65536) or_else panic("document fixture allocation")
+    defer delete(source)
+    assert(len(source)>text.TEXT_BYTES_MAX && len(source)<=text.DOCUMENT_BYTES_MAX)
+    _,small_status:=text.layout_create(&state,source,"Consolas",12,200,true)
+    assert(small_status==text.INVALID_ARGUMENT)
+    document,status:=text.document_layout_create(&state,ui.Font_Handle(1),source,12,0,200)
+    assert(status>=0 && document.text==source)
+    defer text.layout_destroy(&document)
+    ranges,range_status:=text.line_ranges(&document)
+    assert(range_status>=0 && len(ranges)>=65536)
+    defer delete(ranges)
+    assert(ranges[0].byte_start==0 && ranges[len(ranges)-1].next_byte==len(source))
+    assert(state.run_bytes==0 && len(state.runs)==0 && len(state.run_index)==0)
+    oversized:=strings.repeat("x",text.DOCUMENT_BYTES_MAX+1) or_else panic("document boundary allocation")
+    defer delete(oversized)
+    _,large_status:=text.document_layout_create(&state,ui.Font_Handle(1),oversized,12,0,200)
+    assert(large_status==text.INVALID_ARGUMENT)
 }
