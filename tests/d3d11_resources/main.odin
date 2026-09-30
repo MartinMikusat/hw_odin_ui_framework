@@ -11,6 +11,8 @@ import atlas "ui_framework:glyphatlas"
 import text "ui_framework:directwrite"
 
 main :: proc() {
+    assert(!renderer.HOST_CONTROL_ENABLED)
+    verify_surface_boundaries()
     tracking:mem.Tracking_Allocator
     mem.tracking_allocator_init(&tracking,context.allocator)
     defer mem.tracking_allocator_destroy(&tracking)
@@ -18,6 +20,20 @@ main :: proc() {
     verify_resources()
     assert(len(tracking.allocation_map)==0 && len(tracking.bad_free_array)==0)
     fmt.println("Direct3D 11 shader signatures, pipeline states, failure cleanup and retry passed.")
+}
+
+verify_surface_boundaries :: proc() {
+    assert(renderer.surface_size_valid(1920,1080))
+    assert(renderer.surface_size_valid(0,0))
+    assert(!renderer.surface_size_valid(-1,1080))
+    assert(!renderer.surface_size_valid(16385,1))
+    assert(!renderer.surface_size_valid(16384,16384))
+    surface:renderer.Window_Surface
+    assert(renderer.window_surface_init(&surface,nil,nil,1920,1080,0x8001)==renderer.HOST_CONTROL_DISABLED)
+    assert(renderer.window_surface_resize(&surface,nil,1920,1080)==renderer.HOST_CONTROL_DISABLED)
+    assert(renderer.window_surface_present(&surface)==renderer.HOST_CONTROL_DISABLED)
+    renderer.window_surface_destroy(&surface,nil)
+    assert(surface.chain==nil && surface.color==nil && surface.waitable==nil)
 }
 
 verify_resources :: proc() {

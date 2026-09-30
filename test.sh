@@ -7,7 +7,8 @@ mkdir -p "$TEMP"
 cd "$TEMP"
 hw-odin check "$ROOT/tests/directwrite_layout" -target:windows_amd64 -collection:ui_framework="$ROOT" -thread-count:1 -warnings-as-errors -vet -strict-style
 hw-odin check "$ROOT/tools/compile_hlsl" -target:windows_amd64 -thread-count:1 -warnings-as-errors -vet -strict-style
-hw-odin check "$ROOT/tests/d3d11_resources" -target:windows_amd64 -collection:ui_framework="$ROOT" -thread-count:1 -warnings-as-errors -vet -strict-style
+hw-odin check "$ROOT/tests/d3d11_resources" -target:windows_amd64 -collection:ui_framework="$ROOT" -thread-count:1 -warnings-as-errors -vet -strict-style -define:UI_FRAMEWORK_TEST_MODE=true
+hw-odin check "$ROOT/d3d11" -no-entry-point -target:windows_amd64 -collection:ui_framework="$ROOT" -thread-count:1 -warnings-as-errors -vet -strict-style
 "$ROOT/scripts/build-metallib.sh" "$TEMP/ui.metallib"
 
 hw-odin test "$ROOT/renderdata" -collection:ui_framework="$ROOT" -thread-count:1 -warnings-as-errors -vet -strict-style -define:ODIN_TEST_FAIL_ON_BAD_MEMORY=true -define:ODIN_TEST_THREADS=1
