@@ -16,6 +16,7 @@ Context :: struct {
     factory:^Factory,
     factory2:^Factory2,
     allocator:mem.Allocator,
+    atlas:Glyph_Atlas,
 }
 
 Layout :: struct {
@@ -35,11 +36,13 @@ context_init :: proc(value:^Context, allocator:=context.allocator)->win.HRESULT 
     if result<0 {return result}
     assert(factory!=nil)
     value^={factory=cast(^Factory)factory,factory2=cast(^Factory2)factory,allocator=allocator}
+    atlas_init(&value.atlas,allocator)
     return result
 }
 
 context_destroy :: proc(value:^Context) {
     assert(value!=nil)
+    atlas_destroy(&value.atlas)
     if value.factory!=nil {_=value.factory.Release(cast(^win.IUnknown)value.factory)}
     value^={}
 }

@@ -5,6 +5,7 @@ import "core:strings"
 import "core:testing"
 import ui "ui_framework:core"
 import draw "ui_framework:draw"
+import atlas "ui_framework:glyphatlas"
 
 test_atlas_create :: proc(_: rawptr, _: Atlas_Format, _: int, _: int) -> u64 {
 	return 1
@@ -183,29 +184,6 @@ wrapped_line_ranges_preserve_unicode_newlines_and_narrow_clusters_test :: proc(t
     }
 }
 
-@(test)
-shelf_allocator_starts_new_rows_and_rejects_oversized_glyphs_test :: proc(t: ^testing.T) {
-	page := Atlas_Page{width = 16, height = 16}
-	x, y, ok := page_allocate(&page, 10, 5)
-	testing.expect(t, ok)
-	testing.expect_value(t, x, 0)
-	testing.expect_value(t, y, 0)
-	x, y, ok = page_allocate(&page, 8, 6)
-	testing.expect(t, ok)
-	testing.expect_value(t, x, 0)
-	testing.expect_value(t, y, 5)
-	_, _, ok = page_allocate(&page, 17, 1)
-	testing.expect(t, !ok)
-}
-
-@(test)
-dirty_rect_unions_independent_glyph_uploads_test :: proc(t: ^testing.T) {
-	page: Atlas_Page
-	mark_dirty(&page, {2, 3, 4, 5, true})
-	mark_dirty(&page, {8, 1, 3, 4, true})
-	testing.expect_value(t, page.dirty, Dirty_Rect{2, 1, 9, 7, true})
-}
-
 // The atlas must rasterize each glyph at its own bounding-box phase and the
 // pen's quantized subpixel phase: the bitmap then lands on the device pixel
 // grid, and the linear sampler reads the mask 1:1 instead of resampling every
@@ -238,7 +216,7 @@ atlas_bakes_the_glyph_bounding_box_phase_test :: proc(t: ^testing.T) {
 			phase := u8(phase_index)
 			glyph, ok := ensure_glyph(&value, shaped, phase)
 			testing.expect(t, ok)
-			phase_offset := glyph_phase_offset(phase)
+			phase_offset := atlas.phase_offset(phase)
 
 			// The offset uses the floored origin and the cached phase, so the
 			// baked phases and the bitmap placement reconstruct the glyph's
@@ -259,23 +237,6 @@ atlas_bakes_the_glyph_bounding_box_phase_test :: proc(t: ^testing.T) {
 		}
 	}
 	testing.expect(t, fractional, "the test string must contain a glyph with a fractional bounding-box origin")
-}
-
-@(test)
-glyph_subpixel_phase_and_pixel_snap_test :: proc(t: ^testing.T) {
-	// Quantization picks the nearest of four phases and wraps 1.0 to phase 0.
-	testing.expect_value(t, glyph_phase_index(2, 0.0), u8(0))
-	testing.expect_value(t, glyph_phase_index(2, 0.13), u8(1))
-	testing.expect_value(t, glyph_phase_index(2, 0.26), u8(2))
-	testing.expect_value(t, glyph_phase_index(2, 0.40), u8(3))
-	testing.expect_value(t, glyph_phase_index(2, 0.49), u8(0))
-	testing.expect_value(t, glyph_phase_index(2, -0.13), u8(3))
-	testing.expect_value(t, glyph_phase_offset(3), 0.75)
-
-	// Snapping moves a coordinate to the nearest device pixel.
-	testing.expect_value(t, snap_to_pixel(2, 11.1599), f32(11))
-	testing.expect_value(t, snap_to_pixel(2, 11.3), f32(11.5))
-	testing.expect_value(t, snap_to_pixel(1, 4.6), f32(5))
 }
 
 @(test)

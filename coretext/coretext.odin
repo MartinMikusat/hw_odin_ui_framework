@@ -7,6 +7,7 @@ import "core:strings"
 import CF "core:sys/darwin/CoreFoundation"
 import ui "ui_framework:core"
 import draw "ui_framework:draw"
+import atlas "ui_framework:glyphatlas"
 
 Point :: struct {
 	x, y: f64,
@@ -84,43 +85,21 @@ COLOR_PAGE_LIMIT :: 2
 GLYPH_PADDING :: 2
 // Horizontal subpixel phases the atlas keeps per glyph. Four phases bound the
 // sampling error at 1/8 device pixel.
-GLYPH_PHASES :: 4
+GLYPH_PHASES :: atlas.PHASES
 SHAPE_CACHE_LIMIT :: 4096
 SHAPE_CACHE_STALE_FRAMES :: u64(240)
 
-Atlas_Format :: enum {
-	Alpha,
-	Color,
-}
-
-Atlas_Create_Proc :: proc(user_data: rawptr, format: Atlas_Format, width, height: int) -> u64
-Atlas_Upload_Proc :: proc(user_data: rawptr, native: u64, format: Atlas_Format, x, y, width, height: int, pixels: [^]u8, bytes_per_row: int)
-Atlas_Destroy_Proc :: proc(user_data: rawptr, native: u64)
-Atlas_Bind_Proc :: proc(user_data: rawptr, native: u64) -> draw.Texture_Handle
-
-Atlas_IO :: struct {
-	user_data: rawptr,
-	create:    Atlas_Create_Proc,
-	upload:    Atlas_Upload_Proc,
-	destroy:   Atlas_Destroy_Proc,
-	bind:      Atlas_Bind_Proc,
-}
-
-Dirty_Rect :: struct {
-	x, y, w, h: int,
-	valid:      bool,
-}
+Atlas_Format :: atlas.Format
+Atlas_IO :: atlas.IO
+Dirty_Rect :: atlas.Dirty_Rect
 
 Atlas_Page :: struct {
 	format:        Atlas_Format,
-	width, height: int,
+	using packing: atlas.Packing,
 	bytes_per_pixel: int,
 	pixels:        []u8,
 	graphics:      rawptr,
 	native:        u64,
-	cursor_x:      int,
-	cursor_y:      int,
-	row_height:    int,
 	dirty:         Dirty_Rect,
 	bound_frame:   u64,
 	bound_texture: draw.Texture_Handle,
@@ -668,41 +647,13 @@ make_page :: proc(value: ^Context, format: Atlas_Format) -> (Atlas_Page, bool) {
 	if value.io.create != nil {native = value.io.create(value.io.user_data, format, size, size)}
 	return Atlas_Page{
 		format = format,
-		width = size,
-		height = size,
+		packing = {width = size, height = size},
 		bytes_per_pixel = bpp,
 		pixels = pixels,
 		graphics = graphics,
 		native = native,
 		generation = value.generation,
 	}, true
-}
-
-page_allocate :: proc(page: ^Atlas_Page, width, height: int) -> (int, int, bool) {
-	if width <= 0 || height <= 0 || width > page.width || height > page.height {return 0, 0, false}
-	if page.cursor_x+width > page.width {
-		page.cursor_x = 0
-		page.cursor_y += page.row_height
-		page.row_height = 0
-	}
-	if page.cursor_y+height > page.height {return 0, 0, false}
-	x, y := page.cursor_x, page.cursor_y
-	page.cursor_x += width
-	page.row_height = max(page.row_height, height)
-	return x, y, true
-}
-
-mark_dirty :: proc(page: ^Atlas_Page, rect: Dirty_Rect) {
-	if !page.dirty.valid {
-		page.dirty = rect
-		page.dirty.valid = true
-		return
-	}
-	x0 := min(page.dirty.x, rect.x)
-	y0 := min(page.dirty.y, rect.y)
-	x1 := max(page.dirty.x+page.dirty.w, rect.x+rect.w)
-	y1 := max(page.dirty.y+page.dirty.h, rect.y+rect.h)
-	page.dirty = {x0, y0, x1-x0, y1-y0, true}
 }
 
 retire_generation :: proc(value: ^Context) {
@@ -717,7 +668,7 @@ find_page :: proc(value: ^Context, format: Atlas_Format, width, height: int) -> 
 	for &page, index in value.pages {
 		if page.format != format {continue}
 		format_count += 1
-		if x, y, ok := page_allocate(&page, width, height); ok {return index, x, y, true}
+		if x, y, ok := atlas.allocate(&page.packing, width, height); ok {return index, x, y, true}
 	}
 	if format_count >= page_limit(format) {
 		retire_generation(value)
@@ -726,31 +677,8 @@ find_page :: proc(value: ^Context, format: Atlas_Format, width, height: int) -> 
 	if !ok {return 0, 0, 0, false}
 	append(&value.pages, page)
 	index := len(value.pages)-1
-	x, y, allocated := page_allocate(&value.pages[index], width, height)
+	x, y, allocated := atlas.allocate(&value.pages[index].packing, width, height)
 	return index, x, y, allocated
-}
-
-// glyph_phase_index quantizes a pen's horizontal subpixel phase into the glyph
-// cache key, so the bitmap can be rasterized at the phase it is sampled with.
-glyph_phase_index :: proc(backing_scale, pen_x: f32) -> u8 {
-	scaled := f64(pen_x) * f64(max(backing_scale, 1))
-	phase := scaled - math.floor(scaled)
-	index := int(phase * f64(GLYPH_PHASES) + 0.5)
-	if index == GLYPH_PHASES {
-		index = 0 // a phase rounding up to 1.0 is the next pixel's phase 0
-	}
-	return u8(index)
-}
-
-// glyph_phase_offset is the cached phase index in device pixels.
-glyph_phase_offset :: proc(phase: u8) -> f64 {
-	return f64(phase) / f64(GLYPH_PHASES)
-}
-
-// snap_to_pixel rounds a logical coordinate to the device pixel grid.
-snap_to_pixel :: proc(backing_scale, value: f32) -> f32 {
-	scale := max(backing_scale, 1)
-	return f32(math.round(f64(value) * f64(scale))) / scale
 }
 
 ensure_glyph :: proc(value: ^Context, shaped: Shaped_Glyph, phase: u8) -> (Atlas_Glyph, bool) {
@@ -771,7 +699,7 @@ ensure_glyph :: proc(value: ^Context, shaped: Shaped_Glyph, phase: u8) -> (Atlas
 	// between glyphs. Placing the outline at padding + frac(origin) + phase and
 	// compensating in the offset keeps the drawn position identical while the
 	// bitmap lands on the device pixel grid for the sampled phase.
-	phase_offset := glyph_phase_offset(phase)
+	phase_offset := atlas.phase_offset(phase)
 	origin_floor_x := math.floor(bounds.origin.x)
 	origin_floor_y := math.floor(bounds.origin.y)
 	width := max(1, int(bounds.size.width+(bounds.origin.x-origin_floor_x)+phase_offset+0.999))+GLYPH_PADDING*2
@@ -788,7 +716,7 @@ ensure_glyph :: proc(value: ^Context, shaped: Shaped_Glyph, phase: u8) -> (Atlas
 	// coordinates start at the bottom. Mirror the allocated Y coordinate when
 	// the bytes enter the Metal texture, then sample the rectangle bottom-up.
 	pixel_rect := Dirty_Rect{x, page.height-y-height, width, height, true}
-	mark_dirty(page, pixel_rect)
+	atlas.mark_dirty(&page.dirty, pixel_rect)
 	glyph := Atlas_Glyph{
 		page = page_index,
 		pixel_rect = pixel_rect,
@@ -865,7 +793,7 @@ emit_shaped_run :: proc(
 		// while the sampler reads each bitmap 1:1.
 		pen_x := origin.x + shaped.position.x
 		pen_y := origin.y + shaped.position.y
-		phase := glyph_phase_index(scale, pen_x)
+		phase := atlas.phase_index(scale, pen_x)
 		glyph, ok := ensure_glyph(value, shaped, phase)
 		if !ok || glyph.page < 0 || glyph.page >= len(value.pages) {continue}
 		page := &value.pages[glyph.page]
@@ -875,7 +803,7 @@ emit_shaped_run :: proc(
 		if page.format == .Color {mode = .Color}
 		dst := draw.Rect{
 			pen_x+glyph.offset.x,
-			snap_to_pixel(scale, pen_y)+glyph.offset.y,
+			atlas.snap_to_pixel(scale, pen_y)+glyph.offset.y,
 			glyph.size.x,
 			glyph.size.y,
 		}

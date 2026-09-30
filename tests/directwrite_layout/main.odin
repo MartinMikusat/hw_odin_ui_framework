@@ -4,6 +4,30 @@ import "core:fmt"
 import "core:mem"
 import "core:strings"
 import text "ui_framework:directwrite"
+import atlas "ui_framework:glyphatlas"
+import draw "ui_framework:draw"
+
+Atlas_Check :: struct {created,destroyed,uploaded,bound:int}
+
+atlas_create :: proc(raw:rawptr,format:atlas.Format,width,height:int)->u64 {
+    assert(format==.Alpha && width==text.ATLAS_SIDE && height==text.ATLAS_SIDE)
+    value:=cast(^Atlas_Check)raw
+    value.created+=1
+    return u64(value.created)
+}
+atlas_destroy :: proc(raw:rawptr,native:u64) {
+    assert(native>0)
+    (cast(^Atlas_Check)raw).destroyed+=1
+}
+atlas_upload :: proc(raw:rawptr,native:u64,format:atlas.Format,x,y,width,height:int,pixels:[^]u8,stride:int) {
+    assert(native>0 && format==.Alpha && pixels!=nil && stride==text.ATLAS_SIDE)
+    assert(x>=0 && y>=0 && width>0 && height>0 && x+width<=stride && y+height<=stride)
+    (cast(^Atlas_Check)raw).uploaded+=1
+}
+atlas_bind :: proc(raw:rawptr,native:u64)->draw.Texture_Handle {
+    (cast(^Atlas_Check)raw).bound+=1
+    return draw.Texture_Handle(native)
+}
 
 main :: proc() {
     tracking:mem.Tracking_Allocator
@@ -11,6 +35,7 @@ main :: proc() {
     defer mem.tracking_allocator_destroy(&tracking)
     context.allocator=mem.tracking_allocator(&tracking)
     verify_layout()
+    verify_atlas_bounds()
     assert(len(tracking.allocation_map)==0 && len(tracking.bad_free_array)==0)
     fmt.println("DirectWrite layout, Unicode wrapping, caret positions and cleanup passed.")
 }
@@ -86,4 +111,48 @@ verify_layout :: proc() {
     assert(ink && antialias)
     bad_scale,bad_scale_status:=text.glyph_mask(&state,glyphs.glyphs[0],0,0)
     assert(bad_scale_status==text.INVALID_ARGUMENT && bad_scale.pixels==nil)
+    output:draw.List
+    draw.list_init(&output)
+    defer draw.list_destroy(&output)
+    fake:Atlas_Check
+    io:=atlas.IO{&fake,atlas_create,atlas_upload,atlas_destroy,atlas_bind}
+    assert(text.begin_frame(&state,2,io)>=0)
+    emit_layout,emit_layout_status:=text.layout_create(&state,"office café 😀 العربية","Consolas",12,1000,false)
+    assert(emit_layout_status>=0)
+    defer text.layout_destroy(&emit_layout)
+    assert(text.emit_layout(&state,&output,&emit_layout,&glyphs,{0,0,1000,40},{size=12,vertical=.Center},{1,1,1,1})>=0)
+    assert(len(output.batches)>0 && len(output.trace)>0 && fake.created==1 && fake.bound==1)
+    cache_count:=len(state.atlas.entries)
+    assert(cache_count>0)
+    text.flush(&state)
+    assert(fake.uploaded==1)
+    draw.list_reset(&output)
+    assert(text.begin_frame(&state,2,io)>=0)
+    assert(text.emit_layout(&state,&output,&emit_layout,&glyphs,{0,0,1000,40},{size=12,vertical=.Center},{1,1,1,1})>=0)
+    text.flush(&state)
+    assert(fake.created==1 && fake.uploaded==1 && fake.bound==2)
+    assert(len(state.atlas.entries)==cache_count)
+    text.context_destroy(&state)
+    assert(fake.destroyed==fake.created)
+}
+
+verify_atlas_bounds :: proc() {
+    state:text.Context
+    assert(text.context_init(&state)>=0)
+    defer text.context_destroy(&state)
+    fake:Atlas_Check
+    io:=atlas.IO{&fake,atlas_create,atlas_upload,atlas_destroy,atlas_bind}
+    assert(text.begin_frame(&state,2,io)>=0)
+    for _ in 0..<text.ATLAS_PAGES_MAX*2 {
+        _,_,_,status:=text.atlas_allocate(&state.atlas,text.ATLAS_SIDE,text.ATLAS_SIDE)
+        assert(status>=0)
+    }
+    _,_,_,exhausted:=text.atlas_allocate(&state.atlas,text.ATLAS_SIDE,text.ATLAS_SIDE)
+    assert(exhausted==text.OUT_OF_MEMORY && fake.created==text.ATLAS_PAGES_MAX*2)
+    assert(len(state.atlas.pages)==text.ATLAS_PAGES_MAX && len(state.atlas.retired)==text.ATLAS_PAGES_MAX)
+    assert(text.begin_frame(&state,2,io)>=0 && fake.destroyed==text.ATLAS_PAGES_MAX)
+    _,_,_,retry:=text.atlas_allocate(&state.atlas,text.ATLAS_SIDE,text.ATLAS_SIDE)
+    assert(retry>=0)
+    text.context_destroy(&state)
+    assert(fake.destroyed==fake.created)
 }

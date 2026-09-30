@@ -9,6 +9,7 @@ hw-odin check "$ROOT/tests/directwrite_layout" -target:windows_amd64 -collection
 "$ROOT/scripts/build-metallib.sh" "$TEMP/ui.metallib"
 
 hw-odin test "$ROOT/draw" -collection:ui_framework="$ROOT" -vet -strict-style -define:ODIN_TEST_FAIL_ON_BAD_MEMORY=true -no-threaded-checker
+hw-odin test "$ROOT/glyphatlas" -collection:ui_framework="$ROOT" -vet -strict-style -define:ODIN_TEST_FAIL_ON_BAD_MEMORY=true -no-threaded-checker
 hw-odin test "$ROOT/core" -collection:ui_framework="$ROOT" -vet -strict-style -define:ODIN_TEST_FAIL_ON_BAD_MEMORY=true -no-threaded-checker
 hw-odin test "$ROOT/widgets" -collection:ui_framework="$ROOT" -vet -strict-style -define:ODIN_TEST_FAIL_ON_BAD_MEMORY=true -no-threaded-checker
 hw-odin test "$ROOT/hal_wayland" -collection:ui_framework="$ROOT" -vet -strict-style -define:ODIN_TEST_FAIL_ON_BAD_MEMORY=true -no-threaded-checker

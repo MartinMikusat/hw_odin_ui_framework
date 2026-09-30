@@ -39,6 +39,11 @@ ordered draw buckets. It does not copy RADDBG source code.
   atlas bakes each glyph's bounding-box phase and caches four horizontal
   subpixel phases, and baselines snap to the device pixel grid, so text stays
   crisp at fractional positions instead of resampling the glyph masks.
+- `glyphatlas` shares texture callbacks, shelf packing, dirty rectangles and
+  subpixel placement between text backends.
+- `directwrite` supplies Windows layout, glyph extraction and atlas emission.
+  Run `./test-windows.ps1` on Windows for its headless native checks. Cross checks
+  require the Windows STB archives in the active Odin toolchain's `vendor/stb/lib`.
 - `metal` encodes the draw stream into Metal. `encode` writes into a caller-owned
   encoder created from the `command_buffer` it receives. `encode_to_drawable` owns
   the pass list so `Combine.Max` batches can max-blend offscreen and then
