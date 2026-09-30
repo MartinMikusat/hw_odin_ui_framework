@@ -33,6 +33,17 @@ Glyph_Run :: struct {
     sideways:win.BOOL,
     bidi_level:u32,
 }
+Glyph_Run_Description :: struct {
+    locale,text:[^]u16,
+    length:u32,
+    clusters:[^]u16,
+    position:u32,
+}
+#assert(size_of(Glyph_Run_Description)==40)
+#assert(offset_of(Glyph_Run_Description,length)==16)
+#assert(offset_of(Glyph_Run_Description,clusters)==24)
+#assert(offset_of(Glyph_Run_Description,position)==32)
+
 Color_Glyph_Run :: struct {
     run:Glyph_Run,
     description:rawptr,

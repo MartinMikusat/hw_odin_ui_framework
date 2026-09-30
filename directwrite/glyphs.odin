@@ -20,13 +20,18 @@ Glyph :: struct {
     measuring:u32,
 }
 
+Glyph_Span :: struct {first,end:int,position:u32}
+
 Glyph_Buffer :: struct {
     glyphs:[dynamic]Glyph,
+    spans:[dynamic]Glyph_Span,
     fonts:[dynamic]^win.IUnknown,
     allocator:mem.Allocator,
     factory:^Factory2,
     inline_depth:u32,
     glyph_limit:int,
+    document:bool,
+    source_length:u32,
 }
 
 Glyph_Mask :: struct {
@@ -40,6 +45,7 @@ glyph_buffer_destroy :: proc(value:^Glyph_Buffer) {
     for font in value.fonts {_=font->Release()}
     delete(value.fonts)
     delete(value.glyphs)
+    delete(value.spans)
     value^={}
 }
 
@@ -57,17 +63,18 @@ layout_glyphs :: proc(state:^Context,layout:^Layout)->(Glyph_Buffer,win.HRESULT)
 
 document_glyphs :: proc(state:^Context,layout:^Layout)->(Glyph_Buffer,win.HRESULT) {
     assert(state!=nil && layout!=nil && layout.document_owner==state)
-    return collect_layout_glyphs(state,layout,DOCUMENT_GLYPH_COUNT_MAX)
+    return collect_layout_glyphs(state,layout,DOCUMENT_GLYPH_COUNT_MAX,true)
 }
 
 @(private)
-collect_layout_glyphs :: proc(state:^Context,layout:^Layout,limit:int)->(Glyph_Buffer,win.HRESULT) {
+collect_layout_glyphs :: proc(state:^Context,layout:^Layout,limit:int,document:bool=false)->(Glyph_Buffer,win.HRESULT) {
     assert(state!=nil && state.factory2!=nil)
     assert(layout!=nil && layout.native!=nil)
     assert(limit>0 && limit<=DOCUMENT_GLYPH_COUNT_MAX)
-    buffer:=Glyph_Buffer{allocator=state.allocator,factory=state.factory2,glyph_limit=limit}
+    buffer:=Glyph_Buffer{allocator=state.allocator,factory=state.factory2,glyph_limit=limit,document=document,source_length=layout.utf16_length}
     buffer.glyphs=make([dynamic]Glyph,state.allocator)
     buffer.fonts=make([dynamic]^win.IUnknown,state.allocator)
+    if document {buffer.spans=make([dynamic]Glyph_Span,state.allocator)}
     renderer:=Text_Renderer{vtable=&GLYPH_RENDERER_VTABLE,references=1}
     status:=layout.native->Draw(&buffer,&renderer,0,0)
     assert(renderer.references==1)
@@ -136,9 +143,21 @@ renderer_scale :: proc "system" (_:^Text_Renderer,_:rawptr,scale:^f32)->win.HRES
 renderer_glyphs :: proc "system" (_:^Text_Renderer,data:rawptr,x,y:f32,measuring:u32,run:^Glyph_Run,description,effect:rawptr)->win.HRESULT {
     context=runtime.default_context()
     buffer:=cast(^Glyph_Buffer)data
+    first:=len(buffer.glyphs)
+    position:u32
+    if buffer.document {
+        if description==nil {return INVALID_ARGUMENT}
+        source:=cast(^Glyph_Run_Description)description
+        if source.position>buffer.source_length || source.length>buffer.source_length-source.position {return INVALID_ARGUMENT}
+        position=source.position
+    }
     layers:^Color_Enumerator
     status:=buffer.factory->TranslateColorGlyphRun(x,y,run,description,measuring,nil,0,&layers)
-    if status==NO_COLOR {return append_glyph_run(buffer,x,y,measuring,run,{},false)}
+    if status==NO_COLOR {
+        status=append_glyph_run(buffer,x,y,measuring,run,{},false)
+        if status<0 {return status}
+        return record_glyph_span(buffer,first,position)
+    }
     if status<0 {return status}
     assert(layers!=nil)
     defer _=layers.Release(cast(^win.IUnknown)layers)
@@ -146,7 +165,7 @@ renderer_glyphs :: proc "system" (_:^Text_Renderer,data:rawptr,x,y:f32,measuring
         has_run:win.BOOL
         status=layers->MoveNext(&has_run)
         if status<0 {return status}
-        if !bool(has_run) {return 0}
+        if !bool(has_run) {return record_glyph_span(buffer,first,position)}
         layer:^Color_Glyph_Run
         status=layers->GetCurrentRun(&layer)
         if status<0 {return status}
@@ -156,6 +175,16 @@ renderer_glyphs :: proc "system" (_:^Text_Renderer,data:rawptr,x,y:f32,measuring
     }
     return OUT_OF_MEMORY
 }
+@(private)
+record_glyph_span :: proc(buffer:^Glyph_Buffer,first:int,position:u32)->win.HRESULT {
+    assert(first>=0 && first<=len(buffer.glyphs))
+    if !buffer.document || first==len(buffer.glyphs) {return 0}
+    assert(len(buffer.spans)<buffer.glyph_limit)
+    _,error:=append(&buffer.spans,Glyph_Span{first,len(buffer.glyphs),position})
+    if error!=nil {return OUT_OF_MEMORY}
+    return 0
+}
+
 renderer_line :: proc "system" (_:^Text_Renderer,_:rawptr,_:f32,_:f32,_:rawptr,_:rawptr)->win.HRESULT {
     return NOT_IMPLEMENTED
 }

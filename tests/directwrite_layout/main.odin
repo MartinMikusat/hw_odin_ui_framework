@@ -294,6 +294,22 @@ verify_document_layout :: proc() {
     glyphs,glyph_status:=text.document_glyphs(&state,&document)
     assert(glyph_status>=0 && len(glyphs.glyphs)>text.GLYPH_COUNT_MAX && len(glyphs.glyphs)<=text.DOCUMENT_GLYPH_COUNT_MAX)
     defer text.glyph_buffer_destroy(&glyphs)
+    end:=0
+    for span in glyphs.spans {
+        assert(span.first==end && span.end>span.first && span.end<=len(glyphs.glyphs))
+        assert(span.position<document.utf16_length)
+        end=span.end
+    }
+    assert(end==len(glyphs.glyphs) && len(glyphs.spans)>=65536)
+    fake:Atlas_Check
+    assert(text.begin_frame(&state,2,atlas.IO{&fake,atlas_create,atlas_upload,atlas_destroy,atlas_bind})>=0)
+    output:draw.List
+    draw.list_init(&output)
+    defer draw.list_destroy(&output)
+    first:=glyphs.spans[0]
+    assert(first.end-first.first<=13)
+    assert(text.emit_glyph_range(&state,&output,&glyphs,first.first,first.end,{0,24},{1,1,1,1})>=0)
+    assert(len(output.batches)>0 && len(state.atlas.entries)<=first.end-first.first)
     assert(state.run_bytes==0 && len(state.runs)==0 && len(state.run_index)==0)
     oversized:=strings.repeat("x",text.DOCUMENT_BYTES_MAX+1) or_else panic("document boundary allocation")
     defer delete(oversized)

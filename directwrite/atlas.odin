@@ -176,8 +176,14 @@ emit_layout :: proc(state:^Context,list:^draw.List,layout:^Layout,glyphs:^Glyph_
 }
 
 emit_glyphs :: proc(state:^Context,list:^draw.List,glyphs:^Glyph_Buffer,top_left:ui.Vec2,color:draw.Color,label:string)->win.HRESULT {
+    return emit_glyph_range(state,list,glyphs,0,len(glyphs.glyphs),top_left,color,label)
+}
+
+emit_glyph_range :: proc(state:^Context,list:^draw.List,glyphs:^Glyph_Buffer,first,end:int,top_left:ui.Vec2,color:draw.Color,label:string="")->win.HRESULT {
+    assert(state!=nil && list!=nil && glyphs!=nil && state.atlas.frame>0)
+    assert(first>=0 && first<=end && end<=len(glyphs.glyphs))
     value:=&state.atlas
-    for glyph in glyphs.glyphs {
+    for glyph in glyphs.glyphs[first:end] {
         pen_x:=top_left.x+glyph.x
         entry,status:=atlas_glyph(state,glyph,atlas.phase_index(value.scale,pen_x))
         if status<0 {return status}
