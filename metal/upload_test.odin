@@ -65,16 +65,22 @@ upload_never_shares_a_slot_with_unfinished_work_test :: proc(t: ^testing.T) {
 	value: Upload_Test
 	if !upload_test_init(t, &value) {return}
 	defer upload_test_destroy(&value)
+	event := msg_id(value.renderer.device, sel_registerName("newSharedEvent"))
+	if !testing.expect(t, event != nil) {return}
+	defer release(event)
+	defer msg_void_u(event, sel_registerName("setSignaledValue:"), 1)
 
 	first := upload_test_command_buffer(&value)
 	first_upload, first_ok := upload_reserve(&value.renderer, first, 64)
 	testing.expect(t, first_ok)
-	// Committed but possibly still executing: the second frame gets another slot.
+	// Keep the first buffer unfinished until the second reservation completes.
+	msg_void_id_u(first, sel_registerName("encodeWaitForEvent:value:"), event, 1)
 	msg_void(first, sel_registerName("commit"))
 	second := upload_test_command_buffer(&value)
 	second_upload, second_ok := upload_reserve(&value.renderer, second, 64)
 	testing.expect(t, second_ok)
 	testing.expect(t, first_upload.buffer != second_upload.buffer)
+	msg_void_u(event, sel_registerName("setSignaledValue:"), 1)
 	msg_void(first, sel_registerName("waitUntilCompleted"))
 	upload_test_complete(second)
 
