@@ -261,10 +261,17 @@ verify_document_layout :: proc() {
     document,status:=text.document_layout_create(&state,ui.Font_Handle(1),source,12,0,200)
     assert(status>=0 && document.text==source)
     defer text.layout_destroy(&document)
-    ranges,range_status:=text.line_ranges(&document)
+    starts:[]u32
+    ranges,range_status:=text.line_ranges(&document,utf16_starts=&starts)
     assert(range_status>=0 && len(ranges)>=65536)
     defer delete(ranges)
+    defer delete(starts)
     assert(ranges[0].byte_start==0 && ranges[len(ranges)-1].next_byte==len(source))
+    assert(len(starts)==len(ranges) && starts[0]==0 && starts[1]==13)
+    x,y,caret_status:=text.caret_position(&document,starts[1])
+    assert(caret_status>=0 && abs(x)<0.01 && y>0)
+    index,index_status:=text.caret_index(&document,x,y)
+    assert(index_status>=0 && index==starts[1])
     native,owned:=document.native,raw_data(document.text)
     previous:=document.metrics
     assert(text.document_layout_set_width(&document,0)==text.INVALID_ARGUMENT && document.metrics==previous)

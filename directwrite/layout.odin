@@ -152,7 +152,7 @@ document_layout_set_width :: proc(value:^Layout,width:f32)->win.HRESULT {
     return value.native->GetMetrics(&value.metrics)
 }
 
-line_ranges :: proc(value:^Layout, allocator:=context.allocator)->([]Line_Range,win.HRESULT) {
+line_ranges :: proc(value:^Layout, allocator:=context.allocator,utf16_starts:^[]u32=nil)->([]Line_Range,win.HRESULT) {
     assert(value!=nil && value.native!=nil)
     count:=value.metrics.line_count
     if count==0 || count>u32(len(value.text)+1) {return {},INVALID_ARGUMENT}
@@ -165,8 +165,16 @@ line_ranges :: proc(value:^Layout, allocator:=context.allocator)->([]Line_Range,
     assert(actual==count)
     ranges:=make([]Line_Range,int(count),allocator)
     if ranges==nil {return {},OUT_OF_MEMORY}
+    starts:[]u32
+    if utf16_starts!=nil {
+        assert(utf16_starts^==nil)
+        starts=make([]u32,int(count),allocator)
+        if starts==nil {delete(ranges,allocator);return {},OUT_OF_MEMORY}
+        utf16_starts^=starts
+    }
     byte_start,utf16_start:=0,u32(0)
     for line,index in metrics {
+        if starts!=nil {starts[index]=utf16_start}
         assert(line.length<=value.utf16_length-utf16_start)
         assert(line.newline_length<=line.length)
         byte_next:=byte_start
