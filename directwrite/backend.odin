@@ -27,11 +27,11 @@ wrap_line_ranges :: proc(value:^Context,font:ui.Font_Handle,text:string,size,tra
     return line_ranges(&layout,allocator)
 }
 // The document owner destroys this layout before its font context; it is not cached.
-document_layout_create :: proc(value:^Context,font:ui.Font_Handle,text:string,size,tracking,maximum_width:f32,tab_width:=f32(0))->(Layout,win.HRESULT) {
+document_layout_create :: proc(value:^Context,font:ui.Font_Handle,text:string,size,tracking,maximum_width:f32,tab_width:=f32(0),wrap:bool=true)->(Layout,win.HRESULT) {
     assert(value!=nil && value.factory!=nil)
     entry:=font_entry(value,font)
     if entry==nil {return {},INVALID_ARGUMENT}
-    layout,status:=layout_create_bounded(value,text,entry.name,size,maximum_width,true,tracking,false,entry.collection,tab_width,DOCUMENT_BYTES_MAX)
+    layout,status:=layout_create_bounded(value,text,entry.name,size,maximum_width,wrap,tracking,false,entry.collection,tab_width,DOCUMENT_BYTES_MAX)
     if status>=0 {layout.document_owner=value;value.document_count+=1}
     return layout,status
 }

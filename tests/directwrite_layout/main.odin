@@ -332,6 +332,10 @@ verify_document_layout :: proc() {
     defer delete(oversized)
     _,large_status:=text.document_layout_create(&state,ui.Font_Handle(1),oversized,12,0,200)
     assert(large_status==text.INVALID_ARGUMENT && state.document_count==1)
+    unwrapped,unwrapped_status:=text.document_layout_create(&state,ui.Font_Handle(1),"A very long unwrapped table row",12,0,10,wrap=false)
+    assert(unwrapped_status>=0 && unwrapped.metrics.line_count==1 && unwrapped.metrics.width_with_whitespace>10)
+    assert(text.document_layout_set_width(&unwrapped,1)>=0 && unwrapped.metrics.line_count==1)
+    text.layout_destroy(&unwrapped)
     text.layout_destroy(&document)
     assert(state.document_count==0 && document.native==nil && document.document_owner==nil)
 }
