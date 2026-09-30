@@ -10,7 +10,7 @@ RUN_LIMIT :: 4096
 RUN_BYTES_MAX :: 128*1024*1024
 FONT_LIMIT :: 256
 
-Font_Entry :: struct {handle:ui.Font_Handle,name:string}
+Font_Entry :: struct {handle:ui.Font_Handle,name:string,collection:^Font_Collection}
 Run_Key :: struct {
     font:ui.Font_Handle,
     generation:u64,
@@ -36,6 +36,7 @@ register_font :: proc(value:^Context,handle:ui.Font_Handle,name:string)->win.HRE
     for font,i in value.fonts {
         if font.handle==handle {
             if font.name==name {return 0}
+            if font.collection!=nil {return INVALID_ARGUMENT}
             index=i
             break
         }
@@ -46,8 +47,9 @@ register_font :: proc(value:^Context,handle:ui.Font_Handle,name:string)->win.HRE
     if index>=0 {
         delete(value.fonts[index].name,value.allocator)
         value.fonts[index].name=owned
+        value.fonts[index].collection=nil
     } else {
-        _,append_error:=append(&value.fonts,Font_Entry{handle,owned})
+        _,append_error:=append(&value.fonts,Font_Entry{handle,owned,nil})
         if append_error!=nil {delete(owned,value.allocator);return OUT_OF_MEMORY}
     }
     assert(value.font_generation<~u64(0))
@@ -88,11 +90,12 @@ prepare_run :: proc(value:^Context,font:ui.Font_Handle,text:string,size,tracking
         return {ui.Text_Run_ID(index+1),run.metrics},0
     }
     family:=""
-    for entry in value.fonts {if entry.handle==font {family=entry.name;break}}
+    collection:^Font_Collection
+    for entry in value.fonts {if entry.handle==font {family=entry.name;collection=entry.collection;break}}
     if family=="" {return {},INVALID_ARGUMENT}
     width:=maximum_width
     if width==0 {width=LAYOUT_EXTENT_MAX}
-    layout,status:=layout_create(value,text,family,size,width,false,tracking,truncate && maximum_width>0)
+    layout,status:=layout_create(value,text,family,size,width,false,tracking,truncate && maximum_width>0,collection)
     if status<0 {return {},status}
     glyphs,glyph_status:=layout_glyphs(value,&layout)
     if glyph_status<0 {layout_destroy(&layout);return {},glyph_status}

@@ -23,6 +23,7 @@ Context :: struct {
     run_bytes:int,
     font_generation:u64,
     text_error:win.HRESULT,
+    embedded_font:Embedded_Font,
 }
 
 Layout :: struct {
@@ -38,7 +39,7 @@ Line_Range :: struct {byte_start,byte_end,next_byte:int}
 context_init :: proc(value:^Context, allocator:=context.allocator)->win.HRESULT {
     assert(value!=nil && value.factory==nil)
     factory:rawptr
-    result:=DWriteCreateFactory(0,&FACTORY2_IID,&factory)
+    result:=DWriteCreateFactory(1,&FACTORY2_IID,&factory)
     if result<0 {return result}
     assert(factory!=nil)
     value^={factory=cast(^Factory)factory,factory2=cast(^Factory2)factory,allocator=allocator}
@@ -57,6 +58,7 @@ context_destroy :: proc(value:^Context) {
     for font in value.fonts {delete(font.name,value.allocator)}
     delete(value.fonts)
     atlas_destroy(&value.atlas)
+    embedded_font_destroy(value,&value.embedded_font)
     if value.factory!=nil {_=value.factory.Release(cast(^win.IUnknown)value.factory)}
     value^={}
 }
@@ -69,7 +71,7 @@ layout_destroy :: proc(value:^Layout) {
 }
 
 // Layout owns both the native shaped text and its UTF-8 source until destroy.
-layout_create :: proc(value:^Context, text,family:string, size,width:f32, wrap:bool,tracking:=f32(0),truncate:=false)->(Layout,win.HRESULT) {
+layout_create :: proc(value:^Context, text,family:string, size,width:f32, wrap:bool,tracking:=f32(0),truncate:=false,collection:^Font_Collection=nil)->(Layout,win.HRESULT) {
     assert(value!=nil && value.factory!=nil)
     if len(text)>TEXT_BYTES_MAX || len(family)==0 || len(family)>256 ||
        !utf8.valid_string(text) || !utf8.valid_string(family) || strings.contains(family,"\x00") ||
@@ -84,7 +86,7 @@ layout_create :: proc(value:^Context, text,family:string, size,width:f32, wrap:b
     _=utf16.encode_string(name[:],family)
     locale:=[1]u16{0}
     format:^Text_Format
-    status:=value.factory->CreateTextFormat(raw_data(name[:]),nil,400,0,5,size,raw_data(locale[:]),&format)
+    status:=value.factory->CreateTextFormat(raw_data(name[:]),collection,400,0,5,size,raw_data(locale[:]),&format)
     if status<0 {return {},status}
     assert(format!=nil)
     defer _=format.Release(cast(^win.IUnknown)format)
