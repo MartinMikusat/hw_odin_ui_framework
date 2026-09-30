@@ -167,6 +167,26 @@ prepare_callback :: proc(data:rawptr,font:ui.Font_Handle,text:string,size,tracki
     return result
 }
 
+// Runs stay at fixed addresses and remain pinned until the next begin_frame.
+shape :: proc(value:^Context,font:ui.Font_Handle,text:string,size,tracking,maximum_width:f32,truncate:bool,tab_width:=f32(0))->^Prepared_Run {
+    prepared,status:=prepare_run(value,font,text,size,tracking,maximum_width,truncate,tab_width)
+    if status<0 {
+        if value.text_error>=0 {value.text_error=status}
+        return nil
+    }
+    return &value.runs[int(prepared.run)-1]
+}
+
+emit_shaped_run :: proc(value:^Context,list:^draw.List,run:^Prepared_Run,origin:ui.Vec2,color:draw.Color,label:string="") {
+    assert(value!=nil && list!=nil)
+    if run==nil || !run.live || run.frame!=value.atlas.frame {
+        if value.text_error>=0 {value.text_error=INVALID_ARGUMENT}
+        return
+    }
+    status:=emit_glyphs(value,list,&run.glyphs,{origin.x,origin.y+run.metrics.ascent},color,label)
+    if status<0 && value.text_error>=0 {value.text_error=status}
+}
+
 emit_callback :: proc(data:rawptr,list:^draw.List,id:ui.Text_Run_ID,label:string,rect:draw.Rect,style:ui.Text_Style,color:draw.Color) {
     value:=cast(^Context)data
     if id==ui.Text_Run_ID(0) || u64(id)>u64(len(value.runs)) {

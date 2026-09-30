@@ -156,8 +156,7 @@ atlas_glyph :: proc(state:^Context,glyph:Glyph,phase:u8)->(Atlas_Entry,win.HRESU
 // On failure, discard this frame's draw list rather than presenting partial text.
 emit_layout :: proc(state:^Context,list:^draw.List,layout:^Layout,glyphs:^Glyph_Buffer,rect:draw.Rect,style:ui.Text_Style,color:draw.Color,label:string="")->win.HRESULT {
     assert(state!=nil && list!=nil && layout!=nil && glyphs!=nil)
-    value:=&state.atlas
-    assert(value.frame>0)
+    assert(state.atlas.frame>0)
     width:=layout.metrics.width_with_whitespace
     x:=rect.x+style.inset
     switch style.horizontal {
@@ -173,8 +172,13 @@ emit_layout :: proc(state:^Context,list:^draw.List,layout:^Layout,glyphs:^Glyph_
     }
     draw.push_clip(list,rect)
     defer draw.pop_clip(list)
+    return emit_glyphs(state,list,glyphs,{x,top},color,label)
+}
+
+emit_glyphs :: proc(state:^Context,list:^draw.List,glyphs:^Glyph_Buffer,top_left:ui.Vec2,color:draw.Color,label:string)->win.HRESULT {
+    value:=&state.atlas
     for glyph in glyphs.glyphs {
-        pen_x:=x+glyph.x
+        pen_x:=top_left.x+glyph.x
         entry,status:=atlas_glyph(state,glyph,atlas.phase_index(value.scale,pen_x))
         if status<0 {return status}
         if entry.page<0 {continue}
@@ -186,7 +190,7 @@ emit_layout :: proc(state:^Context,list:^draw.List,layout:^Layout,glyphs:^Glyph_
         if page.texture==0 {return OUT_OF_MEMORY}
         ink:=color
         if glyph.colored {ink=glyph.color;ink[3]*=color[3]}
-        dst:=draw.Rect{pen_x+entry.offset.x,atlas.snap_to_pixel(value.scale,top-glyph.y)+entry.offset.y,entry.size.x,entry.size.y}
+        dst:=draw.Rect{pen_x+entry.offset.x,atlas.snap_to_pixel(value.scale,top_left.y-glyph.y)+entry.offset.y,entry.size.x,entry.size.y}
         src:=draw.Rect{f32(entry.pixels.x)/ATLAS_SIDE,f32(entry.pixels.y+entry.pixels.h)/ATLAS_SIDE,f32(entry.pixels.w)/ATLAS_SIDE,-f32(entry.pixels.h)/ATLAS_SIDE}
         draw.image(list,page.texture,dst,src,ink,.Alpha_Mask,kind=.Glyph,label=label)
     }

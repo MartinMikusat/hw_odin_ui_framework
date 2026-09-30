@@ -57,6 +57,8 @@ verify_backend :: proc() {
     bytes:=state.run_bytes
     same:=backend.prepare(backend.user_data,ui.Font_Handle(1),"cached text",12,0,0,false)
     assert(same==prepared && state.run_bytes==bytes && len(state.runs)==1)
+    held:=text.shape(&state,ui.Font_Handle(1),"cached text",12,0,0,false)
+    assert(held!=nil && held.metrics==prepared.metrics)
     unconstrained,unconstrained_status:=text.prepare_run(&state,ui.Font_Handle(1),"zero width",12,0,0,true)
     assert(unconstrained_status>=0 && unconstrained.metrics.width>0)
     tabs,tab_status:=text.prepare_run(&state,ui.Font_Handle(1),"a\tb",12,0,0,false,42)
@@ -75,6 +77,9 @@ verify_backend :: proc() {
         assert(status>=0 && run.run!=ui.Text_Run_ID(0))
     }
     assert(len(state.runs)==text.RUN_LIMIT && len(state.run_index)==text.RUN_LIMIT && state.run_bytes<=text.RUN_BYTES_MAX)
+    assert(held==&state.runs[0] && held.layout.text=="cached text")
+    text.emit_shaped_run(&state,&list,held,{0,20},{1,1,1,1})
+    assert(state.text_error>=0)
     _,full_status:=text.prepare_run(&state,ui.Font_Handle(1),"one more",12,0,0,false)
     assert(full_status==text.OUT_OF_MEMORY && len(state.run_index)==text.RUN_LIMIT)
     assert(text.begin_frame(&state,2,io)>=0)

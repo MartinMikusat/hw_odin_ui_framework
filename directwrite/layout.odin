@@ -45,7 +45,9 @@ context_init :: proc(value:^Context, allocator:=context.allocator)->win.HRESULT 
     value^={factory=cast(^Factory)factory,factory2=cast(^Factory2)factory,allocator=allocator}
     atlas_init(&value.atlas,allocator)
     value.fonts=make([dynamic]Font_Entry,allocator)
-    value.runs=make([dynamic]Prepared_Run,allocator)
+    runs,run_error:=make([dynamic]Prepared_Run,0,RUN_LIMIT,allocator)
+    if run_error!=nil {context_destroy(value);return OUT_OF_MEMORY}
+    value.runs=runs
     value.run_index=make(map[Run_Key]int,allocator)
     return result
 }

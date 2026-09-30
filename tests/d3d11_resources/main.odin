@@ -9,6 +9,7 @@ import draw "ui_framework:draw"
 import data "ui_framework:renderdata"
 import atlas "ui_framework:glyphatlas"
 import text "ui_framework:directwrite"
+import ui "ui_framework:core"
 
 main :: proc() {
     assert(!renderer.HOST_CONTROL_ENABLED)
@@ -286,6 +287,7 @@ verify_encoding :: proc(state:^renderer.Renderer) {
         assert(renderer.encode(state,color,stencil,&list,{96,64})>=0)
         verify_encoded_pixels(state,target)
     }
+    verify_text_frame(state,target,color)
     verify_max_composition(state,target,color,stencil)
     saved:=state.max_target.native
     assert(renderer.max_target_ensure(state,color,16384,16384)==renderer.OUT_OF_MEMORY)
@@ -293,6 +295,61 @@ verify_encoding :: proc(state:^renderer.Renderer) {
     verify_max_composition(state,target,color,stencil)
     assert(state.max_target.native==saved)
     state.immediate->OMSetRenderTargets(0,nil,nil)
+}
+
+verify_text_frame :: proc(state:^renderer.Renderer,target:^dx.ITexture2D,color:^dx.IRenderTargetView) {
+    font:text.Context
+    assert(text.context_init(&font)>=0)
+    defer text.context_destroy(&font)
+    assert(text.register_font(&font,1,"Consolas")>=0)
+    context_ui:ui.Context
+    ui.context_init(&context_ui)
+    defer ui.context_destroy(&context_ui)
+    for scale in ([2]f32{1,2}) {
+        assert(renderer.begin_frame(state)>=0)
+        assert(text.begin_frame(&font,scale,renderer.atlas_io(state))>=0)
+        viewport:=draw.Rect{0,0,96/scale,64/scale}
+        frame:=ui.begin_frame(&context_ui,{viewport=viewport,backing_scale=scale},text.backend(&font))
+        defer ui.frame_destroy(&frame)
+        _=ui.box_add(&frame,{
+            key=ui.key_from_string("Windows text frame"),
+            text="office café العربية",
+            layout={position=.Absolute,absolute={4/scale,4/scale,88/scale,56/scale}},
+            style={text={1,0,0,1},opacity=1,text_style={font=1,size=12,vertical=.Center,truncate=true}},
+            flags={.Draw_Text},
+        })
+        output:=ui.end_frame(&frame)
+        assert(font.text_error>=0 && len(output.draw_list.batches)>0)
+        text.flush(&font)
+        assert(renderer.encode(state,color,nil,output.draw_list,{viewport.w,viewport.h},scale)>=0)
+        verify_text_pixels(state,target)
+    }
+}
+
+verify_text_pixels :: proc(state:^renderer.Renderer,target:^dx.ITexture2D) {
+    descriptor:dx.TEXTURE2D_DESC
+    target->GetDesc(&descriptor)
+    descriptor.Usage=.STAGING
+    descriptor.BindFlags={}
+    descriptor.CPUAccessFlags={.READ}
+    staging:^dx.ITexture2D
+    assert(state.device->CreateTexture2D(&descriptor,nil,&staging)>=0)
+    defer _=staging->Release()
+    state.immediate->CopyResource(staging,target)
+    mapped:dx.MAPPED_SUBRESOURCE
+    assert(state.immediate->Map(staging,0,.READ,{},&mapped)>=0)
+    defer state.immediate->Unmap(staging,0)
+    bytes:=cast([^]u8)mapped.pData
+    ink:=false
+    for y in 0..<64 {
+        for x in 0..<96 {
+            offset:=y*int(mapped.RowPitch)+x*4
+            assert(bytes[offset+1]==0 && bytes[offset+2]==0 && bytes[offset+3]==255)
+            if x<4 || x>=92 || y<4 || y>=60 {assert(bytes[offset]==0)}
+            if bytes[offset]>32 {ink=true}
+        }
+    }
+    assert(ink)
 }
 
 verify_max_composition :: proc(state:^renderer.Renderer,target:^dx.ITexture2D,color:^dx.IRenderTargetView,stencil:^dx.IDepthStencilView) {
