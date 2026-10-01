@@ -300,3 +300,16 @@ non_finite_path_input_discards_the_pending_draw_test :: proc(t: ^testing.T) {
 	path_stroke(&list, {1, 1, 1, 1}, 2)
 	testing.expect_value(t, len(list.batches), 0)
 }
+
+@(test)
+solid_corners_and_rounded_images_keep_per_corner_radii_test :: proc(t: ^testing.T) {
+	list: List
+	list_init(&list)
+	defer list_destroy(&list)
+	radii := [4]f32{1, 2, 3, 4}
+	solid_corners(&list, {0, 0, 10, 10}, {1, 1, 1, 1}, radii)
+	image(&list, Texture_Handle(1), {0, 0, 10, 10}, {0, 0, 1, 1}, corner_radii = radii)
+	testing.expect_value(t, list.batches[0].instances[0].corner_radii, radii)
+	testing.expect_value(t, list.batches[1].instances[0].corner_radii, radii)
+	testing.expect_value(t, list.batches[1].instances[0].edge_softness, f32(1))
+}

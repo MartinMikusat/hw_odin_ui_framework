@@ -396,11 +396,31 @@ solid :: proc(
 	mode := Texture_Mode.Solid,
 	corner_shape := Corner_Shape.Round,
 ) {
+	solid_corners(
+		list, rect, color, {corner_radius, corner_radius, corner_radius, corner_radius},
+		border_thickness, edge_softness, label, combine, mode, corner_shape,
+	)
+}
+
+// solid_corners is solid with one radius per corner, ordered bottom left, top
+// left, bottom right, top right in the list's y-up space.
+solid_corners :: proc(
+	list: ^List,
+	rect: Rect,
+	color: Color,
+	corner_radii: [4]f32,
+	border_thickness: f32 = 0,
+	edge_softness: f32 = 1,
+	label := "",
+	combine := Combine.Over,
+	mode := Texture_Mode.Solid,
+	corner_shape := Corner_Shape.Round,
+) {
 	if rect_is_empty(rect) || color[3] <= 0 {return}
 	instance := Quad_Instance{
 		dst = rect,
 		colors = {color, color, color, color},
-		corner_radii = {corner_radius, corner_radius, corner_radius, corner_radius},
+		corner_radii = corner_radii,
 		border_thickness = border_thickness,
 		edge_softness = edge_softness,
 		texture_mode = mode,
@@ -520,12 +540,16 @@ image :: proc(
 	sampler := Sampler.Linear,
 	kind := Trace_Kind.Image,
 	label := "",
+	corner_radii: [4]f32 = {},
 ) {
 	if texture == Texture_Handle(0) || rect_is_empty(dst) || color[3] <= 0 {return}
+	rounded := corner_radii != {}
 	instance := Quad_Instance{
 		dst = dst,
 		src = src,
 		colors = {color, color, color, color},
+		corner_radii = corner_radii,
+		edge_softness = rounded ? 1 : 0,
 		texture_mode = mode,
 	}
 	append_quad(list, instance, texture, sampler, kind, label)

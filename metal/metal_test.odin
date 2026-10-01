@@ -260,6 +260,79 @@ offscreen_squircle_contour_and_border_are_distinct_from_round_test :: proc(t: ^t
 }
 
 @(test)
+offscreen_per_corner_radii_round_only_the_requested_corner_test :: proc(t: ^testing.T) {
+	device := MTLCreateSystemDefaultDevice()
+	if device == nil {testing.expect(t, false); return}
+	renderer: Renderer
+	testing.expect(t, test_renderer_init(t, &renderer, device))
+	defer renderer_destroy(&renderer)
+
+	descriptor := msg_id_u_u_u_bool(
+		objc_getClass("MTLTextureDescriptor"),
+		sel_registerName("texture2DDescriptorWithPixelFormat:width:height:mipmapped:"),
+		80,
+		128,
+		32,
+		false,
+	)
+	target := msg_id_id(device, sel_registerName("newTextureWithDescriptor:"), descriptor)
+	testing.expect(t, target != nil)
+	defer release(target)
+	queue := msg_id(device, sel_registerName("newCommandQueue"))
+	testing.expect(t, queue != nil)
+	defer release(queue)
+	command_buffer := msg_id(queue, sel_registerName("commandBuffer"))
+	pass := msg_id(objc_getClass("MTLRenderPassDescriptor"), sel_registerName("renderPassDescriptor"))
+	attachments := msg_id(pass, sel_registerName("colorAttachments"))
+	attachment := msg_id_u(attachments, sel_registerName("objectAtIndexedSubscript:"), 0)
+	msg_void_id(attachment, sel_registerName("setTexture:"), target)
+	msg_void_u(attachment, sel_registerName("setLoadAction:"), 2)
+	msg_void_u(attachment, sel_registerName("setStoreAction:"), 1)
+	msg_void_clear_color(attachment, sel_registerName("setClearColor:"), {0, 0, 0, 1})
+	encoder := msg_id_id(command_buffer, sel_registerName("renderCommandEncoderWithDescriptor:"), pass)
+	testing.expect(t, encoder != nil)
+
+	list: draw.List
+	draw.list_init(&list)
+	defer draw.list_destroy(&list)
+	for corner in 0 ..< 4 {
+		radii: [4]f32
+		radii[corner] = 12
+		draw.solid_corners(&list, {f32(corner * 32), 0, 24, 24}, {1, 1, 1, 1}, radii, edge_softness = 0.5)
+	}
+	testing.expect(t, encode(&renderer, command_buffer, encoder, &list, {128, 32}))
+	msg_void(encoder, sel_registerName("endEncoding"))
+	msg_void(command_buffer, sel_registerName("commit"))
+	msg_void(command_buffer, sel_registerName("waitUntilCompleted"))
+
+	pixels := make([]u8, 128*32*4, context.temp_allocator)
+	defer delete(pixels, context.temp_allocator)
+	msg_void_get_bytes(
+		target,
+		sel_registerName("getBytes:bytesPerRow:fromRegion:mipmapLevel:"),
+		raw_data(pixels),
+		128*4,
+		{size = {128, 32, 1}},
+		0,
+	)
+	// Texture row = viewport height - ui y; rects span ui y 0..24 (rows 8..31).
+	// Probe one pixel inside each rect corner, in the same bottom left, top left,
+	// bottom right, top right order as the radii.
+	for corner in 0 ..< 4 {
+		x0 := corner * 32
+		probes := [4][2]int{{x0 + 1, 30}, {x0 + 1, 9}, {x0 + 22, 30}, {x0 + 22, 9}}
+		for probe, index in probes {
+			red := pixels[(probe.y * 128 + probe.x) * 4]
+			if index == corner {
+				testing.expectf(t, red < 32, "radii[%d] must round probe %d, red=%d", corner, index, red)
+			} else {
+				testing.expectf(t, red > 224, "radii[%d] must leave probe %d square, red=%d", corner, index, red)
+			}
+		}
+	}
+}
+
+@(test)
 offscreen_y_band_keeps_top_half_ring_and_clears_the_mid :: proc(t: ^testing.T) {
 	device := MTLCreateSystemDefaultDevice()
 	if device == nil {testing.expect(t, false); return}
