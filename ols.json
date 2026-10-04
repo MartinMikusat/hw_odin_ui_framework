@@ -3,6 +3,14 @@
     {
       "name": "ui_framework",
       "path": "."
+    },
+    {
+      "name": "hw_clay",
+      "path": "../hw_clay"
+    },
+    {
+      "name": "text_backend",
+      "path": "coretext"
     }
   ],
   "profile": "default",
@@ -19,7 +27,8 @@
         "diagnostics",
         "coretext",
         "metal",
-        "macos"
+        "macos",
+        "clay"
       ]
     }
   ]

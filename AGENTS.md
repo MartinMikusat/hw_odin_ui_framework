@@ -9,3 +9,4 @@ Run `./test.sh` for verification. Current integration and ownership contracts ar
 - directwrite/, d3d11/: Windows text, rendering and host adapters.
 - hal_wayland/: shared palette, typography and application chrome.
 - diagnostics/: bounded frame and renderer diagnostics.
+- clay/: hw_clay renderer onto the draw list (needs the hw_clay collection); examples/clay_metal drives it.

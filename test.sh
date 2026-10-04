@@ -29,3 +29,13 @@ hw-odin test "$ROOT/macos" -collection:ui_framework="$ROOT" -vet -strict-style -
   -extra-linker-flags:"-framework AppKit -framework Foundation"
 hw-odin run "$ROOT/tests/frame_timer" -collection:ui_framework="$ROOT" -vet -strict-style \
   -extra-linker-flags:"-framework AppKit -framework Foundation"
+
+HW_CLAY=${HW_CLAY_ROOT:-$(CDPATH= cd -- "$ROOT/../hw_clay" && pwd)}
+hw-odin check "$ROOT/clay" -no-entry-point -target:windows_amd64 -thread-count:1 -warnings-as-errors \
+  -collection:hw_clay="$HW_CLAY" -collection:ui_framework="$ROOT" -collection:text_backend="$ROOT/directwrite"
+hw-odin test "$ROOT/clay" -define:ODIN_TEST_FAIL_ON_BAD_MEMORY=true -collection:hw_clay="$HW_CLAY" -collection:ui_framework="$ROOT"
+mkdir -p "$ROOT/examples/clay_metal/build"
+"$ROOT/scripts/build-metallib.sh" "$ROOT/examples/clay_metal/build/ui.metallib"
+hw-odin build "$ROOT/examples/clay_metal" -collection:hw_clay="$HW_CLAY" -collection:ui_framework="$ROOT" \
+  -extra-linker-flags:"-framework AppKit -framework Foundation -framework Metal -framework QuartzCore -framework CoreText -framework CoreGraphics -framework CoreFoundation" \
+  -out:"$TEMP/clay_metal" -o:speed

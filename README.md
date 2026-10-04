@@ -36,6 +36,10 @@ import ui "ui_framework:core"
 import draw "ui_framework:draw"
 ```
 
+`clay/` draws `hw_clay` render commands into a draw list (`import "ui_framework:clay"`);
+importing it also needs `-collection:hw_clay=/path/to/hw_clay`. `examples/clay_metal` is
+its offscreen and windowed Metal harness.
+
 ## Shader library
 
 Shaders are always precompiled; the renderer has no source-compilation path.
