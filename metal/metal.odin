@@ -311,11 +311,11 @@ create_depth_stencil_state :: proc(renderer: ^Renderer, front, back: Object) -> 
 
 create_disabled_depth_stencil_state :: proc(renderer: ^Renderer) -> Object {
 	if renderer == nil || renderer.device == nil {return nil}
-	descriptor := Metal.DepthStencilDescriptor_init(Metal.DepthStencilDescriptor_alloc())
+	// vendor:darwin/Metal class wrappers crash dev-2026-10 codegen (missing objc_lookUpClass).
+	descriptor := msg_id(objc_getClass("MTLDepthStencilDescriptor"), sel_registerName("new"))
 	if descriptor == nil {return nil}
-	defer release(Object(descriptor))
-	state := Metal.Device_newDepthStencilState((^Metal.Device)(renderer.device), descriptor)
-	return Object(state)
+	defer release(descriptor)
+	return msg_id_id(renderer.device, sel_registerName("newDepthStencilStateWithDescriptor:"), descriptor)
 }
 
 create_stencil_states :: proc(renderer: ^Renderer) -> bool {
