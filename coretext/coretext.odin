@@ -195,7 +195,8 @@ context_init :: proc(value: ^Context, allocator := context.allocator) {
 		font_generation = 1,
 	}
 	value.fonts = make([dynamic]Font_Entry, allocator)
-	value.runs = make([dynamic]Shaped_Run, allocator)
+	// Callers hold ^Shaped_Run into this array while shaping more text; the slot cap lets it never reallocate.
+	value.runs = make([dynamic]Shaped_Run, 0, SHAPE_CACHE_LIMIT, allocator)
 	value.free_run_indices = make([dynamic]int, allocator)
 	value.run_index = make(map[Shape_Key]int, allocator)
 	value.pages = make([dynamic]Atlas_Page, allocator)
