@@ -168,6 +168,7 @@ Font_Entry :: struct {
 
 Context :: struct {
 	allocator:        mem.Allocator,
+	tracking:         f32, // Pixels added to every run's tracking; set once before the first shape.
 	fonts:            [dynamic]Font_Entry,
 	runs:             [dynamic]Shaped_Run,
 	free_run_indices: [dynamic]int,
@@ -313,8 +314,8 @@ make_attributed_string :: proc(value: ^Context, font_handle: ui.Font_Handle, tex
 		CFAttributedStringSetAttribute(attributed, range, kCTLigatureAttributeName, ligature_number)
 		CFRelease(ligature_number)
 	}
-	if tracking != 0 {
-		scaled_tracking := f64(tracking*value.backing_scale)
+	if total := tracking + value.tracking; total != 0 {
+		scaled_tracking := f64(total*value.backing_scale)
 		tracking_number := CFNumberCreate(nil, 13, &scaled_tracking)
 		if tracking_number != nil {
 			CFAttributedStringSetAttribute(attributed, range, kCTKernAttributeName, tracking_number)
