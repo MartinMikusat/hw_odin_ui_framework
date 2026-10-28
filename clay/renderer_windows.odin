@@ -171,7 +171,9 @@ render_shadow :: proc(renderer: ^Renderer, command: hw_clay.Render_Command, data
 	blur := max(data.blur, 0.5)
 	spread := data.spread
 	outer := data.outer_alpha > 0 ? max(data.outer_blur, 0.5) : 0
-	pad := max(blur, outer)
+	// The second layer's shift from the first, in list space (y up).
+	shift := data.outer_alpha > 0 ? [2]f32{data.outer_offset.x - data.offset.x, -(data.outer_offset.y - data.offset.y)} : [2]f32{}
+	pad := max(blur, outer) + max(abs(shift[0]), abs(shift[1]))
 	shape := draw.Rect{caster.x + data.offset.x - spread, caster.y - data.offset.y - spread, caster.w + 2 * spread, caster.h + 2 * spread}
 	box := draw.Rect{shape.x - pad, shape.y - pad, shape.w + 2 * pad, shape.h + 2 * pad}
 	radii := corners_to_draw(data.corner_radius)
@@ -186,6 +188,7 @@ render_shadow :: proc(renderer: ^Renderer, command: hw_clay.Render_Command, data
 		max(radius - 1, 0),
 		outer_softness = outer,
 		outer_alpha = data.outer_alpha,
+		outer_shift = shift,
 	)
 }
 
