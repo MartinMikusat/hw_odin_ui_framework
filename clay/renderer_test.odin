@@ -89,3 +89,26 @@ corner_radii_reach_the_draw_list_in_y_up_order :: proc(t: ^testing.T) {
 	}
 	testing.expect_value(t, len(list.batches), 2)
 }
+
+@(test)
+shadows_enter_the_max_layer_around_a_cut_out_caster :: proc(t: ^testing.T) {
+	list: draw.List
+	draw.list_init(&list)
+	defer draw.list_destroy(&list)
+	renderer := Renderer{list = &list, viewport_height = 400}
+	render_shadow(
+		&renderer,
+		{bounding_box = {x = 10, y = 20, width = 100, height = 50}},
+		{color = {0, 0, 0, 128}, offset = {4, 6}, blur = 8, spread = 2, corner_radius = {4, 4, 4, 4}},
+	)
+	testing.expect_value(t, len(list.batches), 1)
+	if len(list.batches) != 1 {return}
+	testing.expect_value(t, list.batches[0].key.combine, draw.Combine.Max)
+	instance := list.batches[0].instances[0]
+	// Caster in y-up space is {10, 330, 100, 50}; the shadow moves right and down, grows by the
+	// spread and then by the blur on every side.
+	testing.expect_value(t, instance.dst, draw.Rect{4, 314, 120, 70})
+	testing.expect_value(t, instance.edge_softness, f32(8))
+	testing.expect_value(t, instance.effect_offset, [2]f32{6, 16})
+	testing.expect_value(t, instance.src, draw.Rect{4, 0, 100, 50})
+}
