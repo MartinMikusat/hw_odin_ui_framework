@@ -170,8 +170,10 @@ render_shadow :: proc(renderer: ^Renderer, command: hw_clay.Render_Command, data
 	caster := rect_to_draw(renderer, command.bounding_box)
 	blur := max(data.blur, 0.5)
 	spread := data.spread
+	outer := data.outer_alpha > 0 ? max(data.outer_blur, 0.5) : 0
+	pad := max(blur, outer)
 	shape := draw.Rect{caster.x + data.offset.x - spread, caster.y - data.offset.y - spread, caster.w + 2 * spread, caster.h + 2 * spread}
-	box := draw.Rect{shape.x - blur, shape.y - blur, shape.w + 2 * blur, shape.h + 2 * blur}
+	box := draw.Rect{shape.x - pad, shape.y - pad, shape.w + 2 * pad, shape.h + 2 * pad}
 	radii := corners_to_draw(data.corner_radius)
 	radius := max(max(radii[0], radii[1]), max(radii[2], radii[3]))
 	draw.drop_shadow(
@@ -182,6 +184,8 @@ render_shadow :: proc(renderer: ^Renderer, command: hw_clay.Render_Command, data
 		blur,
 		{caster.x - box.x + 1, caster.y - box.y + 1, max(caster.w - 2, 0), max(caster.h - 2, 0)},
 		max(radius - 1, 0),
+		outer_softness = outer,
+		outer_alpha = data.outer_alpha,
 	)
 }
 

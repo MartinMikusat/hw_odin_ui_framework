@@ -440,14 +440,21 @@ drop_shadow :: proc(
 	label := "shadow",
 	combine := Combine.Max,
 	corner_shape := Corner_Shape.Round,
+	outer_softness := f32(0),
+	outer_alpha := f32(0),
 ) {
 	if rect_is_empty(rect) || color[3] <= 0 {return}
+	// A second, softer layer of the same shape and color; the shader stacks the two layers
+	// (1 - (1 - a) * (1 - b)) before the max with other shadows. The second layer's alpha rides in the
+	// otherwise unused second corner color and its softness in the border thickness.
+	outer_color := Color{color[0], color[1], color[2], outer_alpha}
 	instance := Quad_Instance{
 		dst = rect,
 		src = {hole_radius, 0, hole.w, hole.h},
-		colors = {color, color, color, color},
+		colors = {color, outer_color, color, color},
 		corner_radii = {corner_radius, corner_radius, corner_radius, corner_radius},
 		effect_offset = {hole.x, hole.y},
+		border_thickness = outer_alpha > 0 ? outer_softness : 0,
 		edge_softness = edge_softness,
 		texture_mode = .Shadow,
 		corner_shape = corner_shape,

@@ -103,6 +103,33 @@ float rounded_distance(float2 local, float2 size, float4 radii, uint corner_shap
 }
 
 float4 shade_quad(VertexOut input, UI_TEXTURE image_texture, UI_SAMPLER image_sampler) {
+    if (input.texture_mode == 3u) {
+        // Shadow: the layer's own color, an optional softer second layer (softness in border_thickness,
+        // alpha in the flat second corner color) stacked on the first, and the caster's cut-out.
+        float s1 = input.edge_softness;
+        float s2 = input.border_thickness;
+        float pad = max(s1, s2);
+        float shadow_distance = rounded_distance(
+            input.local - pad,
+            max(input.size - 2.0 * pad, float2(0.001, 0.001)),
+            input.corner_radii,
+            input.corner_shape
+        );
+        float tight = (1.0 - smoothstep(-s1, s1, shadow_distance)) * input.ramp_bottom.a;
+        float soft = s2 > 0.0 ? (1.0 - smoothstep(-s2, s2, shadow_distance)) * input.ramp_mid.a : 0.0;
+        float stacked = 1.0 - (1.0 - tight) * (1.0 - soft);
+        if (input.hole_size.x > 0.0 && input.hole_size.y > 0.0) {
+            float hole_r = max(input.hole_radius, 0.0);
+            float hole_dist = rounded_distance(
+                input.local - input.effect_offset,
+                input.hole_size,
+                float4(hole_r, hole_r, hole_r, hole_r),
+                input.corner_shape
+            );
+            stacked *= smoothstep(-0.5, 0.5, hole_dist);
+        }
+        return float4(input.ramp_bottom.rgb * stacked, stacked);
+    }
     float2 sdf_local = input.local;
     float2 sdf_size = input.size;
     if (input.texture_mode == 3u) {
