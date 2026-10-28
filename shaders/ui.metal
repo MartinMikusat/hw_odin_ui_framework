@@ -59,3 +59,14 @@ fragment float4 path_fragment(
     constant PathUniforms &uniforms [[buffer(1)]]) {
     return shade_path(input, uniforms);
 }
+
+// Multiplies the frame by the shadow layer: white where nothing casts a shadow,
+// the shadow color mixed in by its coverage elsewhere. The blend state applies
+// the result as destination * source.
+fragment float4 shadow_multiply_fragment(
+    VertexOut input [[stage_in]],
+    texture2d<float> image [[texture(0)]],
+    sampler sampling [[sampler(0)]]) {
+    float4 shadow = image.sample(sampling, input.uv);
+    return float4(float3(1.0 - shadow.a) + shadow.rgb, 1.0);
+}

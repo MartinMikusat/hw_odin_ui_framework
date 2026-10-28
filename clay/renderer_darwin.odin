@@ -158,6 +158,32 @@ render_border :: proc(renderer: ^Renderer, command: hw_clay.Render_Command, data
 	}
 }
 
+// render_shadow draws the shadow of a box into the shadow layer. The layer
+// combines overlapping shadows by their maximum and the box itself is cut out,
+// so a translucent box does not show its own shadow.
+render_shadow :: proc(renderer: ^Renderer, command: hw_clay.Render_Command, data: hw_clay.Shadow_Render_Data) {
+	color := color_to_draw(data.color)
+	if color.a <= 0 {
+		return
+	}
+	caster := rect_to_draw(renderer, command.bounding_box)
+	blur := max(data.blur, 0.5)
+	spread := data.spread
+	shape := draw.Rect{caster.x + data.offset.x - spread, caster.y - data.offset.y - spread, caster.w + 2 * spread, caster.h + 2 * spread}
+	box := draw.Rect{shape.x - blur, shape.y - blur, shape.w + 2 * blur, shape.h + 2 * blur}
+	radii := corners_to_draw(data.corner_radius)
+	radius := max(max(radii[0], radii[1]), max(radii[2], radii[3]))
+	draw.drop_shadow(
+		renderer.list,
+		box,
+		color,
+		max(radius + spread, 0),
+		blur,
+		{caster.x - box.x, caster.y - box.y, caster.w, caster.h},
+		radius,
+	)
+}
+
 render_text :: proc(renderer: ^Renderer, command: hw_clay.Render_Command, data: hw_clay.Text_Render_Data) {
 	color := apply_overlays(renderer, color_to_draw(data.text_color))
 	if color.a <= 0 || len(data.string_contents) == 0 {
@@ -208,6 +234,8 @@ render_commands :: proc(renderer: ^Renderer, commands: []hw_clay.Render_Command)
 			render_rectangle(renderer, command, data)
 		case hw_clay.Border_Render_Data:
 			render_border(renderer, command, data)
+		case hw_clay.Shadow_Render_Data:
+			render_shadow(renderer, command, data)
 		case hw_clay.Text_Render_Data:
 			render_text(renderer, command, data)
 		case hw_clay.Image_Render_Data:

@@ -62,6 +62,8 @@ Renderer :: struct {
 	pipeline:         Object,
 	stencil_pipeline: Object,
 	max_pipeline:     Object,
+	multiply_pipeline: Object,
+	multiply_stencil_pipeline: Object,
 	path_pipeline:    Object,
 	path_stencil_pipeline: Object,
 	path_stencil_write_pipeline: Object,
@@ -224,6 +226,7 @@ create_pipeline :: proc(
 	vertex_function := "ui_vertex",
 	fragment_function := "ui_fragment",
 	max_blend := false,
+	multiply_blend := false,
 	stencil_enabled := false,
 	color_write := true,
 ) -> Object {
@@ -262,7 +265,13 @@ create_pipeline :: proc(
 	msg_void_u(attachment, sel_registerName("setPixelFormat:"), pixel_format)
 	if !color_write {msg_void_u(attachment, sel_registerName("setWriteMask:"), 0)}
 	msg_void_bool(attachment, sel_registerName("setBlendingEnabled:"), true)
-	if max_blend {
+	if multiply_blend {
+		// destination * source color; the alpha channel keeps its destination value.
+		msg_void_u(attachment, sel_registerName("setSourceRGBBlendFactor:"), 0)
+		msg_void_u(attachment, sel_registerName("setDestinationRGBBlendFactor:"), 2)
+		msg_void_u(attachment, sel_registerName("setSourceAlphaBlendFactor:"), 0)
+		msg_void_u(attachment, sel_registerName("setDestinationAlphaBlendFactor:"), 1)
+	} else if max_blend {
 		msg_void_u(attachment, sel_registerName("setRgbBlendOperation:"), 4)
 		msg_void_u(attachment, sel_registerName("setAlphaBlendOperation:"), 4)
 		msg_void_u(attachment, sel_registerName("setSourceRGBBlendFactor:"), 1)
@@ -410,6 +419,13 @@ renderer_init :: proc(
 	renderer.pipeline = create_pipeline(renderer, library, pixel_format)
 	renderer.stencil_pipeline = create_pipeline(renderer, library, pixel_format, stencil_enabled = true)
 	renderer.max_pipeline = create_pipeline(renderer, library, pixel_format, max_blend = true)
+	renderer.multiply_pipeline = create_pipeline(
+		renderer, library, pixel_format, fragment_function = "shadow_multiply_fragment", multiply_blend = true,
+	)
+	renderer.multiply_stencil_pipeline = create_pipeline(
+		renderer, library, pixel_format, fragment_function = "shadow_multiply_fragment", multiply_blend = true,
+		stencil_enabled = true,
+	)
 	renderer.path_pipeline = create_pipeline(
 		renderer,
 		library,
@@ -440,6 +456,7 @@ renderer_init :: proc(
 	renderer.linear_sampler = create_sampler(renderer, false)
 	renderer.nearest_sampler = create_sampler(renderer, true)
 	if renderer.pipeline == nil || renderer.stencil_pipeline == nil || renderer.max_pipeline == nil ||
+	   renderer.multiply_pipeline == nil || renderer.multiply_stencil_pipeline == nil ||
 	   renderer.path_pipeline == nil || renderer.path_stencil_pipeline == nil ||
 	   renderer.path_stencil_write_pipeline == nil || renderer.white_texture == nil ||
 	   renderer.linear_sampler == nil || renderer.nearest_sampler == nil {
@@ -456,6 +473,8 @@ renderer_destroy :: proc(renderer: ^Renderer) {
 	release(renderer.pipeline)
 	release(renderer.stencil_pipeline)
 	release(renderer.max_pipeline)
+	release(renderer.multiply_pipeline)
+	release(renderer.multiply_stencil_pipeline)
 	release(renderer.path_pipeline)
 	release(renderer.path_stencil_pipeline)
 	release(renderer.path_stencil_write_pipeline)
@@ -1019,8 +1038,8 @@ composite_shadow_texture :: proc(
 		opacity = 1,
 		transform = {1, 0, 0, 1},
 	}
-	pipeline := renderer.pipeline
-	if stencil_available {pipeline = renderer.stencil_pipeline}
+	pipeline := renderer.multiply_pipeline
+	if stencil_available {pipeline = renderer.multiply_stencil_pipeline}
 	msg_void_id(encoder, sel_registerName("setRenderPipelineState:"), pipeline)
 	msg_void_id(
 		encoder,

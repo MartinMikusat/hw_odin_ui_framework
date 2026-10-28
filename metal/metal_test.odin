@@ -746,6 +746,59 @@ overlapping_max_shadows_keep_peak_coverage_test :: proc(t: ^testing.T) {
 }
 
 @(test)
+offscreen_shadow_layer_multiplies_the_frame_by_its_color_test :: proc(t: ^testing.T) {
+	device := MTLCreateSystemDefaultDevice()
+	if device == nil {testing.expect(t, false); return}
+	renderer: Renderer
+	testing.expect(t, test_renderer_init(t, &renderer, device))
+	defer renderer_destroy(&renderer)
+
+	descriptor := msg_id_u_u_u_bool(
+		objc_getClass("MTLTextureDescriptor"),
+		sel_registerName("texture2DDescriptorWithPixelFormat:width:height:mipmapped:"),
+		80,
+		64,
+		64,
+		false,
+	)
+	msg_void_u(descriptor, sel_registerName("setUsage:"), 5)
+	target := msg_id_id(device, sel_registerName("newTextureWithDescriptor:"), descriptor)
+	testing.expect(t, target != nil)
+	defer release(target)
+	queue := msg_id(device, sel_registerName("newCommandQueue"))
+	testing.expect(t, queue != nil)
+	defer release(queue)
+	command_buffer := msg_id(queue, sel_registerName("commandBuffer"))
+
+	list: draw.List
+	draw.list_init(&list)
+	defer draw.list_destroy(&list)
+	// A half-covering red shadow on a mid gray frame: multiplying gives (0.5, 0.25, 0.25).
+	// Compositing the shadow over the frame would give a red of 0.75 instead.
+	draw.drop_shadow(&list, {8, 8, 48, 48}, {1, 0, 0, 0.5}, 0, 4, {}, 0)
+	testing.expect(t, encode_to_drawable(&renderer, command_buffer, target, &list, {64, 64}, 1, {0.5, 0.5, 0.5, 1}))
+	msg_void(command_buffer, sel_registerName("commit"))
+	msg_void(command_buffer, sel_registerName("waitUntilCompleted"))
+
+	pixels := make([]u8, 64*64*4, context.temp_allocator)
+	defer delete(pixels, context.temp_allocator)
+	msg_void_get_bytes(
+		target,
+		sel_registerName("getBytes:bytesPerRow:fromRegion:mipmapLevel:"),
+		raw_data(pixels),
+		64*4,
+		{size = {64, 64, 1}},
+		0,
+	)
+	center := (32*64 + 32) * 4
+	corner := (2*64 + 2) * 4
+	testing.expect(t, abs(int(pixels[center+2]) - 128) <= 3)
+	testing.expect(t, abs(int(pixels[center+1]) - 64) <= 3)
+	testing.expect(t, abs(int(pixels[center]) - 64) <= 3)
+	testing.expect(t, abs(int(pixels[corner+1]) - 128) <= 3)
+}
+
+@(test)
 offscreen_drop_shadow_punches_caster_and_keeps_the_halo_test :: proc(t: ^testing.T) {
 	device := MTLCreateSystemDefaultDevice()
 	if device == nil {testing.expect(t, false); return}

@@ -122,6 +122,14 @@ surface only. A surface dismiss control converts Escape or a backdrop click
 into a signal for that surface; nested dismissal leaves every parent surface
 mounted and inactive until it becomes topmost again.
 
+Shadows (`draw.drop_shadow`, and `shadow` on hw_clay elements) draw into a
+separate offscreen layer that combines overlaps by their maximum. The layer is
+then multiplied onto the frame: white where nothing casts a shadow, the shadow
+color mixed in by its coverage elsewhere. Metal does this today; the D3D11
+composite still lays the layer over the frame. hw_clay emits the shadows of an
+element's children together, after the element's own fill and before any child
+content, so sibling shadows combine and never darken their own faces.
+
 The draw stream preserves submission order. The renderer combines adjacent
 compatible instances only. It does not sort rectangles, text, or textures.
 Nested buckets splice complete draw streams into their parent without changing
