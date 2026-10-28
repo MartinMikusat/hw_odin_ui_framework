@@ -109,6 +109,6 @@ shadows_enter_the_max_layer_around_a_cut_out_caster :: proc(t: ^testing.T) {
 	// spread and then by the blur on every side.
 	testing.expect_value(t, instance.dst, draw.Rect{4, 314, 120, 70})
 	testing.expect_value(t, instance.edge_softness, f32(8))
-	testing.expect_value(t, instance.effect_offset, [2]f32{6, 16})
-	testing.expect_value(t, instance.src, draw.Rect{4, 0, 100, 50})
+	testing.expect_value(t, instance.effect_offset, [2]f32{7, 17})
+	testing.expect_value(t, instance.src, draw.Rect{3, 0, 98, 48})
 }

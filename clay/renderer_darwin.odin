@@ -160,7 +160,8 @@ render_border :: proc(renderer: ^Renderer, command: hw_clay.Render_Command, data
 
 // render_shadow draws the shadow of a box into the shadow layer. The layer
 // combines overlapping shadows by their maximum and the box itself is cut out,
-// so a translucent box does not show its own shadow.
+// so a translucent box does not show its own shadow. The cut-out is one pixel smaller than the box, so the
+// partly covered edge pixels of the box (or of a clip rounded to whole pixels) keep their shadow.
 render_shadow :: proc(renderer: ^Renderer, command: hw_clay.Render_Command, data: hw_clay.Shadow_Render_Data) {
 	color := color_to_draw(data.color)
 	if color.a <= 0 {
@@ -179,8 +180,8 @@ render_shadow :: proc(renderer: ^Renderer, command: hw_clay.Render_Command, data
 		color,
 		max(radius + spread, 0),
 		blur,
-		{caster.x - box.x, caster.y - box.y, caster.w, caster.h},
-		radius,
+		{caster.x - box.x + 1, caster.y - box.y + 1, max(caster.w - 2, 0), max(caster.h - 2, 0)},
+		max(radius - 1, 0),
 	)
 }
 
