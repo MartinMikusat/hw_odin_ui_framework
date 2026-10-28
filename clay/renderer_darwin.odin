@@ -48,9 +48,9 @@ Renderer :: struct {
 	overlay_overflow: int,
 }
 
-renderer_register_font :: proc(renderer: ^Renderer, handle: ui.Font_Handle, postscript_name: string) {
+renderer_register_font :: proc(renderer: ^Renderer, handle: ui.Font_Handle, postscript_name: string, tracked := true) {
 	assert(int(handle) < MAX_FONT_HANDLES)
-	coretext.register_font(renderer.text, handle, postscript_name)
+	coretext.register_font(renderer.text, handle, postscript_name, tracked)
 	renderer.fonts[handle] = handle
 	if renderer.default_font == 0 {
 		renderer.default_font = handle

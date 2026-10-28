@@ -162,8 +162,9 @@ Wrapped_Line_Range :: struct {
 }
 
 Font_Entry :: struct {
-	handle: ui.Font_Handle,
-	name:   string,
+	handle:    ui.Font_Handle,
+	name:      string,
+	untracked: bool, // The context-wide tracking is meant for the monospace face; proportional faces keep their own spacing.
 }
 
 Context :: struct {
@@ -235,18 +236,19 @@ context_destroy :: proc(value: ^Context) {
 	value^ = {}
 }
 
-register_font :: proc(value: ^Context, handle: ui.Font_Handle, postscript_name: string) {
+register_font :: proc(value: ^Context, handle: ui.Font_Handle, postscript_name: string, tracked := true) {
 	assert(value != nil && handle != ui.Font_Handle(0) && len(postscript_name) > 0)
 	for &font in value.fonts {
 		if font.handle != handle {continue}
-		if font.name == postscript_name {return}
+		if font.name == postscript_name && font.untracked == !tracked {return}
+		font.untracked = !tracked
 		delete(font.name, value.allocator)
 		font.name = strings.clone(postscript_name, value.allocator)
 		value.font_generation += 1
 		clear_shape_cache(value)
 		return
 	}
-	append(&value.fonts, Font_Entry{handle, strings.clone(postscript_name, value.allocator)})
+	append(&value.fonts, Font_Entry{handle, strings.clone(postscript_name, value.allocator), !tracked})
 	value.font_generation += 1
 	clear_shape_cache(value)
 }
@@ -314,7 +316,9 @@ make_attributed_string :: proc(value: ^Context, font_handle: ui.Font_Handle, tex
 		CFAttributedStringSetAttribute(attributed, range, kCTLigatureAttributeName, ligature_number)
 		CFRelease(ligature_number)
 	}
-	if total := tracking + value.tracking; total != 0 {
+	untracked := false
+	for &entry in value.fonts {if entry.handle == font_handle {untracked = entry.untracked; break}}
+	if total := tracking + (untracked ? 0 : value.tracking); total != 0 {
 		scaled_tracking := f64(total*value.backing_scale)
 		tracking_number := CFNumberCreate(nil, 13, &scaled_tracking)
 		if tracking_number != nil {

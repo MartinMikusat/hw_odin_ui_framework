@@ -48,7 +48,7 @@ Renderer :: struct {
 	overlay_overflow: int,
 }
 
-renderer_register_font :: proc(renderer: ^Renderer, handle: ui.Font_Handle, family_name: string) {
+renderer_register_font :: proc(renderer: ^Renderer, handle: ui.Font_Handle, family_name: string, tracked := true) {
 	assert(int(handle) < MAX_FONT_HANDLES)
 	native.register_font(renderer.text, handle, family_name)
 	renderer.fonts[handle] = handle
