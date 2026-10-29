@@ -188,6 +188,25 @@ nested_clips_intersect_test :: proc(t: ^testing.T) {
 }
 
 @(test)
+shadow_clip_widens_only_along_axes_the_caster_fits_test :: proc(t: ^testing.T) {
+	list: List
+	list_init(&list)
+	defer list_destroy(&list)
+	push_clip(&list, {0, 0, 10, 10})
+	push_shadow_clip(&list, {2, 2, 4, 4}, 3)
+	clip, enabled := top_clip(&list)
+	testing.expect(t, enabled)
+	testing.expect_value(t, clip, Rect{-3, -3, 16, 16})
+	pop_clip(&list)
+	push_shadow_clip(&list, {8, 2, 4, 4}, 3)
+	clip, _ = top_clip(&list)
+	testing.expect_value(t, clip, Rect{0, -3, 10, 16})
+	pop_clip(&list)
+	clip, _ = top_clip(&list)
+	testing.expect_value(t, clip, Rect{0, 0, 10, 10})
+}
+
+@(test)
 nested_bucket_preserves_order_and_merges_only_adjacent_state_test :: proc(t: ^testing.T) {
 	parent, child: Bucket
 	bucket_init(&parent)

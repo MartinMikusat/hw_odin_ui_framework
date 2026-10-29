@@ -178,6 +178,8 @@ render_shadow :: proc(renderer: ^Renderer, command: hw_clay.Render_Command, data
 	box := draw.Rect{shape.x - pad, shape.y - pad, shape.w + 2 * pad, shape.h + 2 * pad}
 	radii := corners_to_draw(data.corner_radius)
 	radius := max(max(radii[0], radii[1]), max(radii[2], radii[3]))
+	draw.push_shadow_clip(renderer.list, caster, pad)
+	defer draw.pop_clip(renderer.list)
 	draw.drop_shadow(
 		renderer.list,
 		box,

@@ -319,6 +319,20 @@ push_clip :: proc(list: ^List, rect: Rect) {
 	append(&list.clip_enabled_stack, true)
 }
 
+// push_shadow_clip pushes the current clip widened by reach on each axis along which the
+// caster lies inside it, so the shadow of a box that fits its clip is not cut off at the
+// clip edge. Along an axis the caster crosses, the clip stays as it is. Pair with pop_clip.
+push_shadow_clip :: proc(list: ^List, caster: Rect, reach: f32) {
+	clip, enabled := top_clip(list)
+	next := clip
+	if enabled {
+		if caster.x >= clip.x && caster.x+caster.w <= clip.x+clip.w {next.x -= reach; next.w += 2*reach}
+		if caster.y >= clip.y && caster.y+caster.h <= clip.y+clip.h {next.y -= reach; next.h += 2*reach}
+	}
+	append(&list.clip_stack, next)
+	append(&list.clip_enabled_stack, enabled)
+}
+
 pop_clip :: proc(list: ^List) {
 	assert(len(list.clip_stack) > 1)
 	resize(&list.clip_stack, len(list.clip_stack)-1)
