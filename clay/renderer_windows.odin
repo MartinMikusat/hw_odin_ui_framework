@@ -158,8 +158,9 @@ render_border :: proc(renderer: ^Renderer, command: hw_clay.Render_Command, data
 	}
 }
 
-// render_shadow draws the shadow of a box into the shadow layer. The layer
-// combines overlapping shadows by their maximum and the box itself is cut out,
+// render_shadow draws the shadow of a box in draw order, blended over what is already drawn: a shadow adds no
+// render pass, where the max-combined shadow layer costs a full-screen pass for each run of consecutive shadows.
+// Overlapping shadows stack instead of taking their maximum. The box itself is cut out,
 // so a translucent box does not show its own shadow. The cut-out is one pixel smaller than the box, so the
 // partly covered edge pixels of the box (or of a clip rounded to whole pixels) keep their shadow.
 render_shadow :: proc(renderer: ^Renderer, command: hw_clay.Render_Command, data: hw_clay.Shadow_Render_Data) {
@@ -188,6 +189,7 @@ render_shadow :: proc(renderer: ^Renderer, command: hw_clay.Render_Command, data
 		blur,
 		{caster.x - box.x + 1, caster.y - box.y + 1, max(caster.w - 2, 0), max(caster.h - 2, 0)},
 		max(radius - 1, 0),
+		combine = .Over,
 		outer_softness = outer,
 		outer_alpha = data.outer_alpha,
 		outer_shift = shift,
