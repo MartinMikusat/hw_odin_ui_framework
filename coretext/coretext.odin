@@ -24,7 +24,6 @@ Rect :: struct {
 
 foreign import core_foundation "system:CoreFoundation.framework"
 foreign core_foundation {
-	CFStringCreateWithCString           :: proc "c" (allocator: rawptr, text: cstring, encoding: u32) -> rawptr ---
 	CFStringGetLength                   :: proc "c" (value: rawptr) -> int ---
 	CFAttributedStringCreateMutable     :: proc "c" (allocator: rawptr, maximum_length: int) -> rawptr ---
 	CFAttributedStringReplaceString     :: proc "c" (value: rawptr, range: CF.Range, replacement: rawptr) ---
@@ -289,7 +288,7 @@ cfstring :: proc(value: string) -> rawptr {
 	text, err := strings.clone_to_cstring(value, context.temp_allocator)
 	if err != nil {return nil}
 	defer delete(text, context.temp_allocator)
-	return CFStringCreateWithCString(nil, text, UTF8_ENCODING)
+	return rawptr(CF.StringCreateWithCString(nil, text, CF.StringEncoding(UTF8_ENCODING)))
 }
 
 make_attributed_string :: proc(value: ^Context, font_handle: ui.Font_Handle, text: string, size, tracking: f32) -> rawptr {

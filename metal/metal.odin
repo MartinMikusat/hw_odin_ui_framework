@@ -3,6 +3,7 @@ package metal
 import "core:mem"
 import "base:intrinsics"
 import "core:strings"
+import CF "core:sys/darwin/CoreFoundation"
 import coretext "ui_framework:coretext"
 import draw "ui_framework:draw"
 import renderdata "ui_framework:renderdata"
@@ -21,7 +22,6 @@ foreign objc {
 
 foreign import core_foundation "system:CoreFoundation.framework"
 foreign core_foundation {
-	CFStringCreateWithCString :: proc "c" (allocator: rawptr, text: cstring, encoding: u32) -> rawptr ---
 	CFRelease                 :: proc "c" (value: rawptr) ---
 }
 
@@ -190,11 +190,11 @@ msg_void_clear_color :: proc(receiver: Object, selector: Selector, color: MTL_Cl
 }
 
 nsstring :: proc(value: string) -> Object {
-	if len(value) == 0 {return CFStringCreateWithCString(nil, "", UTF8_ENCODING)}
+	if len(value) == 0 {return rawptr(CF.StringCreateWithCString(nil, "", CF.StringEncoding(UTF8_ENCODING)))}
 	text, err := strings.clone_to_cstring(value, context.temp_allocator)
 	if err != nil {return nil}
 	defer delete(text, context.temp_allocator)
-	return CFStringCreateWithCString(nil, text, UTF8_ENCODING)
+	return rawptr(CF.StringCreateWithCString(nil, text, CF.StringEncoding(UTF8_ENCODING)))
 }
 
 release :: proc(value: Object) {
