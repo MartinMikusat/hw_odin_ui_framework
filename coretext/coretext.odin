@@ -106,10 +106,11 @@ Atlas_Page :: struct {
 }
 
 Glyph_Key :: struct {
-	font_hash: uint,
-	glyph:     u16,
-	format:    Atlas_Format,
-	phase:     u8,
+	font_hash:  uint,
+	scale_bits: u32,
+	glyph:      u16,
+	format:     Atlas_Format,
+	phase:      u8,
 }
 
 Atlas_Glyph :: struct {
@@ -690,7 +691,7 @@ ensure_glyph :: proc(value: ^Context, shaped: Shaped_Glyph, phase: u8) -> (Atlas
 	assert(phase < GLYPH_PHASES, "glyph phase out of range")
 	format := Atlas_Format.Alpha
 	if CTFontGetSymbolicTraits(shaped.font) & COLOR_GLYPH_TRAIT != 0 {format = .Color}
-	key := Glyph_Key{CFHash(shaped.font), shaped.glyph, format, phase}
+	key := Glyph_Key{CFHash(shaped.font), float_bits(value.backing_scale), shaped.glyph, format, phase}
 	if glyph, ok := value.glyphs[key]; ok && glyph.generation == value.generation {return glyph, true}
 	glyphs := [1]u16{shaped.glyph}
 	bounds_array: [1]Rect
